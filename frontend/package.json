@@ -1,46 +1,29 @@
 {
-  "name": "webtoon-explainer-frontend",
+  "name": "gemini-slideshow-studio",
+  "private": true,
   "version": "1.0.0",
-  "description": "Next.js Frontend for AI Webtoon Story Explainer",
+  "type": "module",
   "scripts": {
-    "dev": "next dev -p 3000",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
-    "@emotion/cache": "^11.11.0",
-    "@emotion/react": "^11.11.3",
-    "@emotion/server": "^11.11.0",
-    "@emotion/styled": "^11.11.0",
-    "@ffmpeg/core": "^0.12.10",
-    "@ffmpeg/ffmpeg": "^0.12.15",
-    "@ffmpeg/util": "^0.12.2",
-    "@mui/icons-material": "^5.15.3",
-    "@mui/material": "^5.15.3",
-    "@mui/material-nextjs": "^5.15.11",
-    "@reduxjs/toolkit": "^2.0.1",
-    "@remotion/cli": "^4.0.499",
     "@remotion/media-utils": "^4.0.499",
     "@remotion/player": "^4.0.499",
-    "@tanstack/react-query": "^5.17.9",
     "axios": "^1.6.5",
-    "next": "^14.1.0",
+    "canvas-confetti": "^1.9.2",
+    "lucide-react": "^0.363.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-hook-form": "^7.49.3",
-    "react-redux": "^9.0.4",
-    "react-toastify": "^10.0.3",
-    "remotion": "^4.0.499",
-    "tesseract.js": "^5.1.1",
-    "wavesurfer.js": "^7.8.0"
+    "remotion": "^4.0.499"
   },
   "devDependencies": {
-    "@types/node": "^20.19.43",
+    "@types/canvas-confetti": "^1.9.0",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
-    "eslint": "^8.56.0",
-    "eslint-config-next": "^14.1.0",
-    "typescript": "^5.3.3"
+    "@vitejs/plugin-react": "^4.2.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.2.0"
   }
 }

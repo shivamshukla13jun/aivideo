@@ -1,0 +1,158 @@
+import React, { useState } from 'react';
+import { X, Key, Check, ShieldCheck } from 'lucide-react';
+
+interface SettingsModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  apiKey: string;
+  onSaveApiKey: (key: string) => void;
+  backendStatus: { status: string; geminiConfigured: boolean; ffmpegAvailable: boolean };
+}
+
+export const SettingsModal: React.FC<SettingsModalProps> = ({
+  isOpen,
+  onClose,
+  apiKey,
+  onSaveApiKey,
+  backendStatus,
+}) => {
+  const [inputKey, setInputKey] = useState(apiKey);
+  const [saved, setSaved] = useState(false);
+
+  if (!isOpen) return null;
+
+  const handleSave = () => {
+    onSaveApiKey(inputKey.trim());
+    setSaved(true);
+    setTimeout(() => {
+      setSaved(false);
+      onClose();
+    }, 800);
+  };
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(0, 0, 0, 0.75)',
+      backdropFilter: 'blur(10px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 100,
+      padding: '20px',
+    }}>
+      <div className="glass-panel" style={{
+        width: '100%',
+        maxWidth: '480px',
+        padding: '28px',
+        position: 'relative',
+      }}>
+        <button
+          onClick={onClose}
+          style={{
+            position: 'absolute',
+            top: '20px',
+            right: '20px',
+            background: 'transparent',
+            border: 'none',
+            color: 'var(--text-secondary)',
+            cursor: 'pointer',
+          }}
+        >
+          <X size={20} />
+        </button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '10px',
+            background: 'var(--grad-cyan-violet)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <Key size={22} color="#ffffff" />
+          </div>
+          <div>
+            <h2 style={{ fontSize: '18px', fontWeight: 700, margin: 0 }}>
+              Gemini AI Settings
+            </h2>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+              Configure your Google Gemini API subscription key
+            </p>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+            Gemini API Key:
+          </label>
+          <input
+            type="password"
+            value={inputKey}
+            onChange={(e) => setInputKey(e.target.value)}
+            placeholder="AIzaSy..."
+            style={{
+              width: '100%',
+              padding: '12px',
+              borderRadius: '8px',
+              background: 'rgba(0, 0, 0, 0.35)',
+              border: '1px solid var(--border-color)',
+              color: '#ffffff',
+              fontSize: '14px',
+              fontFamily: 'monospace',
+            }}
+          />
+          <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px', lineHeight: 1.4 }}>
+            Your key is used securely to call Gemini Pro / Flash models for storyboard generation and vision analysis.
+          </p>
+        </div>
+
+        <div style={{
+          background: 'rgba(255, 255, 255, 0.03)',
+          border: '1px solid var(--border-color)',
+          borderRadius: '8px',
+          padding: '12px',
+          marginBottom: '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          fontSize: '12px',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: 'var(--text-secondary)' }}>Backend Server:</span>
+            <span style={{ color: backendStatus.status === 'ok' ? '#34d399' : '#f87171', fontWeight: 600 }}>
+              {backendStatus.status === 'ok' ? 'Online (localhost:5000)' : 'Offline'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: 'var(--text-secondary)' }}>Client Video Exporter:</span>
+            <span style={{ color: '#34d399', fontWeight: 600 }}>
+              Active (Canvas + WebCodecs)
+            </span>
+          </div>
+        </div>
+
+        <button
+          className="btn-primary"
+          onClick={handleSave}
+          style={{ width: '100%', justifyContent: 'center', padding: '12px' }}
+        >
+          {saved ? (
+            <>
+              <Check size={18} />
+              <span>Saved!</span>
+            </>
+          ) : (
+            <span>Save API Key</span>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+};

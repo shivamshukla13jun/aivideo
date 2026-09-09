@@ -1,6 +1,6 @@
-import { AbsoluteFill, Audio, Img, Sequence, useCurrentFrame, useVideoConfig, interpolate } from 'remotion';
 import React from 'react';
-import { Scene, Subtitle } from './types';
+import { AbsoluteFill, Audio, Img, Sequence, useCurrentFrame, useVideoConfig, interpolate } from 'remotion';
+import { Scene, Subtitle, DEFAULT_SUBTITLE_STYLE } from './types';
 
 export interface RemotionCompositionProps extends Record<string, unknown> {
   scenes: Scene[];
@@ -11,7 +11,7 @@ export const RemotionComposition: React.FC<RemotionCompositionProps> = ({ scenes
   const safeScenes = scenes || [];
 
   return (
-    <AbsoluteFill style={{ backgroundColor: 'black' }}>
+    <AbsoluteFill style={{ backgroundColor: '#000000', overflow: 'hidden' }}>
       {safeScenes.map((scene, index) => {
         const durationInFrames = Math.max(1, Math.round(scene.duration * fps));
         const startInFrames = safeScenes
@@ -19,9 +19,9 @@ export const RemotionComposition: React.FC<RemotionCompositionProps> = ({ scenes
           .reduce((sum, s) => sum + Math.max(1, Math.round(s.duration * fps)), 0);
 
         return (
-          <Sequence key={scene.id} from={startInFrames} durationInFrames={durationInFrames}>
+          <Sequence key={scene.id || index} from={startInFrames} durationInFrames={durationInFrames}>
             <SceneRenderer scene={scene} />
-            <SubtitleRenderer subtitles={scene.subtitles} sceneDuration={scene.duration} />
+            <SubtitleRenderer subtitles={scene.subtitles} />
             <AudioRenderer scene={scene} />
           </Sequence>
         );
@@ -33,34 +33,85 @@ export const RemotionComposition: React.FC<RemotionCompositionProps> = ({ scenes
 const SceneRenderer: React.FC<{ scene: Scene }> = ({ scene }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const totalFrames = Math.max(1, scene.duration * fps);
 
   const getEffectStyle = (): React.CSSProperties => {
     switch (scene.effect) {
-      case 'fade':
-        return {
-          opacity: interpolate(frame, [0, fps * 0.5], [0, 1], { extrapolateRight: 'clamp' }),
-        };
-      case 'zoom': {
-        const scale = interpolate(frame, [0, scene.duration * fps], [1, 1.2], { extrapolateRight: 'clamp' });
-        return { transform: `scale(${scale})` };
-      }
-      case 'slide': {
-        const translateX = interpolate(frame, [0, fps * 0.5], [-100, 0], { extrapolateRight: 'clamp' });
-        return { transform: `translateX(${translateX}%)` };
-      }
       case 'kenburns': {
-        const kbScale = interpolate(frame, [0, scene.duration * fps], [1, 1.15], { extrapolateRight: 'clamp' });
-        const kbX = interpolate(frame, [0, scene.duration * fps], [0, -5], { extrapolateRight: 'clamp' });
-        const kbY = interpolate(frame, [0, scene.duration * fps], [0, -3], { extrapolateRight: 'clamp' });
-        return { transform: `scale(${kbScale}) translate(${kbX}%, ${kbY}%)` };
+        const scale = interpolate(frame, [0, totalFrames], [1.0, 1.2], {
+          extrapolateRight: 'clamp',
+        });
+        const x = interpolate(frame, [0, totalFrames], [0, -4], {
+          extrapolateRight: 'clamp',
+        });
+        const y = interpolate(frame, [0, totalFrames], [0, -2], {
+          extrapolateRight: 'clamp',
+        });
+        return {
+          transform: `scale(${scale}) translate(${x}%, ${y}%)`,
+          transformOrigin: 'center center',
+        };
+      }
+      case 'zoom-in': {
+        const scale = interpolate(frame, [0, totalFrames], [1.0, 1.25], {
+          extrapolateRight: 'clamp',
+        });
+        return {
+          transform: `scale(${scale})`,
+          transformOrigin: 'center center',
+        };
+      }
+      case 'zoom-out': {
+        const scale = interpolate(frame, [0, totalFrames], [1.25, 1.0], {
+          extrapolateRight: 'clamp',
+        });
+        return {
+          transform: `scale(${scale})`,
+          transformOrigin: 'center center',
+        };
+      }
+      case 'pan-left': {
+        const x = interpolate(frame, [0, totalFrames], [4, -4], {
+          extrapolateRight: 'clamp',
+        });
+        return {
+          transform: `scale(1.15) translateX(${x}%)`,
+          transformOrigin: 'center center',
+        };
+      }
+      case 'pan-right': {
+        const x = interpolate(frame, [0, totalFrames], [-4, 4], {
+          extrapolateRight: 'clamp',
+        });
+        return {
+          transform: `scale(1.15) translateX(${x}%)`,
+          transformOrigin: 'center center',
+        };
+      }
+      case 'fade': {
+        const fadeInFrames = Math.min(15, totalFrames * 0.2);
+        const fadeOutFrames = Math.min(15, totalFrames * 0.2);
+        const opacity = interpolate(
+          frame,
+          [0, fadeInFrames, totalFrames - fadeOutFrames, totalFrames],
+          [0, 1, 1, 0],
+          { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
+        );
+        return { opacity };
       }
       case 'crossfade': {
-        const opacity = interpolate(frame, [0, fps * 0.8], [0, 1], { extrapolateRight: 'clamp' });
+        const opacity = interpolate(frame, [0, Math.min(20, totalFrames * 0.3)], [0, 1], {
+          extrapolateRight: 'clamp',
+        });
         return { opacity };
       }
       case 'wipe': {
-        const clipPercent = interpolate(frame, [0, fps * 0.6], [0, 100], { extrapolateRight: 'clamp' });
-        return { clipPath: `inset(0 ${100 - clipPercent}% 0 0)` };
+        const clipPercent = interpolate(frame, [0, Math.min(20, totalFrames * 0.3)], [0, 100], {
+          extrapolateRight: 'clamp',
+        });
+        return {
+          clipPath: `inset(0 ${100 - clipPercent}% 0 0)`,
+        };
       }
       default:
         return {};
@@ -68,7 +119,7 @@ const SceneRenderer: React.FC<{ scene: Scene }> = ({ scene }) => {
   };
 
   return (
-    <AbsoluteFill>
+    <AbsoluteFill style={{ overflow: 'hidden', backgroundColor: '#000' }}>
       <Img
         src={scene.imageUrl}
         style={{
@@ -82,36 +133,39 @@ const SceneRenderer: React.FC<{ scene: Scene }> = ({ scene }) => {
   );
 };
 
-const SubtitleRenderer: React.FC<{ subtitles: Subtitle[]; sceneDuration: number }> = ({
-  subtitles,
-  sceneDuration,
-}) => {
+const SubtitleRenderer: React.FC<{ subtitles?: Subtitle[] }> = ({ subtitles = [] }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const currentTimeInScene = frame / fps;
+  const currentTimeInSeconds = frame / fps;
 
   const activeSubtitles = subtitles.filter(
-    (sub) => currentTimeInScene >= sub.startTime && currentTimeInScene <= sub.endTime
+    (sub) => currentTimeInSeconds >= sub.startTime && currentTimeInSeconds <= sub.endTime
   );
 
   if (activeSubtitles.length === 0) return null;
 
   return (
-    <AbsoluteFill>
+    <AbsoluteFill style={{ pointerEvents: 'none' }}>
       {activeSubtitles.map((sub) => {
+        const style = { ...DEFAULT_SUBTITLE_STYLE, ...(sub.style || {}) };
         const fadeIn = interpolate(
-          currentTimeInScene,
-          [sub.startTime, sub.startTime + 0.2],
+          currentTimeInSeconds,
+          [sub.startTime, sub.startTime + 0.25],
           [0, 1],
           { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
         );
         const fadeOut = interpolate(
-          currentTimeInScene,
-          [sub.endTime - 0.2, sub.endTime],
+          currentTimeInSeconds,
+          [sub.endTime - 0.25, sub.endTime],
           [1, 0],
           { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
         );
         const opacity = Math.min(fadeIn, fadeOut);
+
+        const pos = style.position || 'bottom';
+        let posStyle: React.CSSProperties = { bottom: '8%' };
+        if (pos === 'top') posStyle = { top: '8%' };
+        if (pos === 'center') posStyle = { top: '50%', transform: 'translateY(-50%)' };
 
         return (
           <div
@@ -120,33 +174,34 @@ const SubtitleRenderer: React.FC<{ subtitles: Subtitle[]; sceneDuration: number 
               position: 'absolute',
               left: 0,
               right: 0,
-              ...getPositionStyle(sub.style.position),
+              ...posStyle,
               display: 'flex',
               justifyContent: 'center',
-              padding: '20px 40px',
+              padding: '0 40px',
               opacity,
+              transition: 'opacity 0.2s ease',
             }}
           >
-            <span
+            <div
               style={{
-                fontSize: sub.style.fontSize,
-                fontFamily: sub.style.fontFamily,
-                color: sub.style.color,
-                backgroundColor: sub.style.backgroundColor,
-                fontWeight: sub.style.bold ? 'bold' : 'normal',
-                fontStyle: sub.style.italic ? 'italic' : 'normal',
-                padding: '8px 16px',
-                borderRadius: 6,
+                fontSize: style.fontSize || 32,
+                fontFamily: style.fontFamily || 'Outfit, sans-serif',
+                color: style.color || '#ffffff',
+                backgroundColor: style.backgroundColor || 'rgba(0, 0, 0, 0.75)',
+                fontWeight: style.bold !== false ? 700 : 400,
+                fontStyle: style.italic ? 'italic' : 'normal',
+                padding: '10px 24px',
+                borderRadius: '12px',
                 textAlign: 'center',
-                maxWidth: '80%',
+                maxWidth: '85%',
                 lineHeight: 1.4,
-                ...(sub.style.outline
-                  ? { textShadow: '2px 2px 4px rgba(0,0,0,0.8), -1px -1px 2px rgba(0,0,0,0.6)' }
-                  : {}),
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+                textShadow: style.outline !== false ? '0 2px 8px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,1)' : 'none',
+                backdropFilter: 'blur(8px)',
               }}
             >
               {sub.text}
-            </span>
+            </div>
           </div>
         );
       })}
@@ -155,29 +210,20 @@ const SubtitleRenderer: React.FC<{ subtitles: Subtitle[]; sceneDuration: number 
 };
 
 const AudioRenderer: React.FC<{ scene: Scene }> = ({ scene }) => {
+  const { fps } = useVideoConfig();
+  const clips = scene.audioClips || [];
+
   return (
     <>
-      {scene.audioClips.map((audio) => (
+      {clips.map((audio) => (
         <Sequence
           key={audio.id}
-          from={Math.round(audio.startTime * 30)}
-          durationInFrames={Math.max(1, Math.round(audio.duration * 30))}
+          from={Math.round((audio.startTime || 0) * fps)}
+          durationInFrames={Math.max(1, Math.round((audio.duration || scene.duration) * fps))}
         >
-          <Audio src={audio.url} volume={audio.volume} />
+          <Audio src={audio.url} volume={audio.volume ?? 1} />
         </Sequence>
       ))}
     </>
   );
 };
-
-function getPositionStyle(position: 'top' | 'center' | 'bottom'): React.CSSProperties {
-  switch (position) {
-    case 'top':
-      return { top: 40 };
-    case 'center':
-      return { top: '50%', transform: 'translateY(-50%)' };
-    case 'bottom':
-    default:
-      return { bottom: 60 };
-  }
-}
