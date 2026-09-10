@@ -89,11 +89,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <div style={{ marginBottom: '20px' }}>
-          <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
-            Gemini API Key:
-          </label>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <label style={{ fontSize: '13px', fontWeight: 600 }}>
+              Gemini API Key:
+            </label>
+            <a
+              href="https://aistudio.google.com/app/apikey"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                fontSize: '11px',
+                color: '#38bdf8',
+                textDecoration: 'underline',
+                fontWeight: 600,
+              }}
+            >
+              फ्री API Key प्राप्त करें (Google AI Studio) ↗
+            </a>
+          </div>
           <input
-            type="password"
+            type="text"
             value={inputKey}
             onChange={(e) => setInputKey(e.target.value)}
             placeholder="AIzaSy..."
@@ -102,14 +117,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               padding: '12px',
               borderRadius: '8px',
               background: 'rgba(0, 0, 0, 0.35)',
-              border: '1px solid var(--border-color)',
+              border: inputKey.startsWith('AQ.')
+                ? '1px solid #ef4444'
+                : '1px solid var(--border-color)',
               color: '#ffffff',
-              fontSize: '14px',
+              fontSize: '13px',
               fontFamily: 'monospace',
             }}
           />
-          <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px', lineHeight: 1.4 }}>
-            Your key is used securely to call Gemini Pro / Flash models for storyboard generation and vision analysis.
+
+          {inputKey.startsWith('AQ.') && (
+            <div style={{
+              marginTop: '8px',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              background: 'rgba(239, 68, 68, 0.15)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              color: '#fca5a5',
+              fontSize: '11px',
+              lineHeight: 1.4,
+            }}>
+              ⚠️ <strong>अमान्य क्रेडेंशियल प्रकार (ACCESS_TOKEN_TYPE_UNSUPPORTED):</strong>
+              <br />
+              यह कुंजी (जो <code>AQ.</code> से शुरू हो रही है) एक आंतरिक IDE टोकन है। Google Gemini API के लिए आधिकारिक Key हमेशा <code>AIzaSy...</code> से शुरू होती है। कृपया ऊपर दिए गए लिंक से फ्री API Key बनाकर यहाँ पेस्ट करें।
+            </div>
+          )}
+
+          <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px', lineHeight: 1.4 }}>
+            💡 <strong>नोट:</strong> Google Gemini API Key <code>AIzaSy...</code> से शुरू होती है। यह सीधे Google AI Studio से 100% मुफ़्त मिलती है।
           </p>
         </div>
 

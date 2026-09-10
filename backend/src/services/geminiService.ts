@@ -64,13 +64,51 @@ export interface AnalyzeImagesOptions {
 
 export class GeminiService {
   private getClient(customKey?: string): GoogleGenAI {
-    const key = customKey || config.geminiApiKey;
+    const key = (customKey || config.geminiApiKey || '').trim();
     if (!key) {
       throw new Error(
-        'Gemini API Key is missing. Please provide it in settings, in your request, or set GEMINI_API_KEY in the backend .env file.'
+        'Gemini API Key मौजूद नहीं है। कृपया ऐप की सेटिंग्स (⚙️) में या backend/.env में अपनी Google AI Studio API Key (AIzaSy...) दर्ज करें।'
+      );
+    }
+    if (key.startsWith('AQ.')) {
+      throw new Error(
+        'अमान्य Gemini API Key (Invalid Key): वर्तमान कुंजी "AQ." से शुरू हो रही है, जो एक आंतरिक टोकन है। Google Gemini API के लिए मान्य API Key "AIzaSy..." से शुरू होती है। कृपया https://aistudio.google.com/app/apikey से अपनी फ्री API Key बनाकर सेटिंग्स (⚙️) में पेस्ट करें।'
       );
     }
     return new GoogleGenAI({ apiKey: key });
+  }
+
+  /**
+   * Catches and formats Gemini API errors into actionable, clear Hindi messages.
+   */
+  public handleGeminiError(error: any): never {
+    const errorStr = typeof error === 'string' ? error : (error?.message || JSON.stringify(error));
+
+    if (
+      error?.status === 401 ||
+      errorStr.includes('401') ||
+      errorStr.includes('UNAUTHENTICATED') ||
+      errorStr.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED') ||
+      errorStr.includes('invalid authentication credentials')
+    ) {
+      throw new Error(
+        'अमान्य Gemini API Key (401 Unauthorized): प्रदान की गई कुंजी अमान्य है। Google Gemini API के लिए मान्य API Key "AIzaSy..." से शुरू होती है। कृपया https://aistudio.google.com/app/apikey पर जाकर एक नई फ्री API Key बनाएं और ऐप सेटिंग्स (⚙️) में सेव करें।'
+      );
+    }
+
+    if (errorStr.includes('404') || errorStr.includes('NOT_FOUND')) {
+      throw new Error(
+        'चयनित Gemini मॉडल उपलब्ध नहीं है। कृपया मॉडल को "gemini-3.6-flash" पर रखें।'
+      );
+    }
+
+    if (errorStr.includes('429') || errorStr.includes('RESOURCE_EXHAUSTED')) {
+      throw new Error(
+        'Gemini API दर सीमा (Rate Limit 429): अनुरोधों की सीमा पूरी हो गई है। कृपया 30 सेकंड बाद पुनः प्रयास करें या अपनी API Key का कोटा जांचें।'
+      );
+    }
+
+    throw error;
   }
 
   /**
@@ -146,21 +184,25 @@ Generate the video slideshow plan in pure JSON with all narrations, titles, desc
   ]
 }`;
 
-    // Stream real-time tokens from Gemini AI API
-    const responseStream = await ai.models.generateContentStream({
-      model: targetModel,
-      contents: [
-        { role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] },
-      ],
-    });
-
     let responseText = '';
-    for await (const chunk of responseStream) {
-      const text = chunk.text || '';
-      responseText += text;
-      if (options.onChunk) {
-        options.onChunk(text, responseText.length);
+    try {
+      // Stream real-time tokens from Gemini AI API
+      const responseStream = await ai.models.generateContentStream({
+        model: targetModel,
+        contents: [
+          { role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] },
+        ],
+      });
+
+      for await (const chunk of responseStream) {
+        const text = chunk.text || '';
+        responseText += text;
+        if (options.onChunk) {
+          options.onChunk(text, responseText.length);
+        }
       }
+    } catch (streamErr: any) {
+      this.handleGeminiError(streamErr);
     }
 
     const cleanedJson = responseText
@@ -319,19 +361,23 @@ Format strictly as pure JSON:
 
     parts.push({ text: promptText });
 
-    // Stream real-time tokens from Gemini AI API
-    const responseStream = await ai.models.generateContentStream({
-      model: targetModel,
-      contents: [{ role: 'user', parts }],
-    });
-
     let responseText = '';
-    for await (const chunk of responseStream) {
-      const text = chunk.text || '';
-      responseText += text;
-      if (options.onChunk) {
-        options.onChunk(text, responseText.length);
+    try {
+      // Stream real-time tokens from Gemini AI API
+      const responseStream = await ai.models.generateContentStream({
+        model: targetModel,
+        contents: [{ role: 'user', parts }],
+      });
+
+      for await (const chunk of responseStream) {
+        const text = chunk.text || '';
+        responseText += text;
+        if (options.onChunk) {
+          options.onChunk(text, responseText.length);
+        }
       }
+    } catch (streamErr: any) {
+      this.handleGeminiError(streamErr);
     }
 
     const cleanedJson = responseText

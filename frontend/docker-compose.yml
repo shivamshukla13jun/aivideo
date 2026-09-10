@@ -1,8 +1,9 @@
 version: '3.8'
 
 # ==============================================================================
-# 🚀 AI Video Studio & Anime/Manga Production Docker Compose Stack
-# (Frontend Workspace Mirror)
+# 🚀 AI Video Studio & Anime/Manga Docker Compose Stack (Frontend Mirror)
+# ==============================================================================
+# एकल .env फ़ाइल के आधार पर सभी सेवाएं चलती हैं।
 # ==============================================================================
 
 services:
@@ -40,13 +41,14 @@ services:
     container_name: aivideo-backend
     restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "${PORT:-5000}:5000"
+    env_file:
+      - ../backend/.env
     environment:
-      - NODE_ENV=production
       - PORT=5000
-      - MONGODB_URI=mongodb://mongodb:27017/aivideo
-      - SUWAYOMI_URL=http://suwayomi:4567
-      - CLIENT_URL=http://localhost
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/aivideo}
+      - SUWAYOMI_URL=${SUWAYOMI_URL:-http://suwayomi:4567}
+      - CLIENT_URL=${CLIENT_URL:-http://localhost}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
     volumes:
       - backend_storage:/app/storage

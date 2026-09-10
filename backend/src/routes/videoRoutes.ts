@@ -10,6 +10,7 @@ import { geminiService } from '../services/geminiService';
 import { videoService } from '../services/videoService';
 import { characterMemoryService } from '../services/characterMemoryService';
 import { chapterCacheService } from '../services/chapterCacheService';
+import { ProjectModel } from '../db/models/ProjectModel';
 import { emitProgress } from '../socket';
 
 const router = Router();
@@ -36,7 +37,7 @@ const upload = multer({
 });
 
 /**
- * Health & Capabilities Check with Environment and Service Status
+ * Health & Capabilities Check with Service Status
  */
 router.get('/status', async (req: Request, res: Response) => {
   try {
@@ -59,83 +60,16 @@ router.get('/status', async (req: Request, res: Response) => {
     // Live MongoDB connection check
     const mongoConnected = mongoose.connection.readyState === 1;
 
-    const isProd = config.isProduction;
-
     res.json({
       status: 'ok',
-      environment: config.environment,
-      environmentLabelHindi: isProd
-        ? '🚀 प्रोडक्शन वातावरण (Production)'
-        : '🛠️ डेवलपमेंट वातावरण (Development)',
-      backendApiUrl: isProd ? '/api/video' : `http://localhost:${config.port}/api/video`,
-      suwayomiApiUrl: isProd ? '/suwayomi' : config.suwayomiUrl,
-      suwayomiInternalUrl: config.suwayomiUrl,
+      backendApiUrl: '/api/video',
+      suwayomiApiUrl: '/suwayomi',
       suwayomiConnected,
       mongoConnected,
-      isAllInOne: config.isAllInOne,
       ffmpegAvailable,
       geminiConfigured: hasEnvKey,
       clientUrl: config.clientUrl,
       timestamp: new Date().toISOString(),
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * Environment Details and Diagnostics Endpoint (हिंदी विवरण के साथ)
- */
-router.get('/environment', async (req: Request, res: Response) => {
-  try {
-    const isProd = config.isProduction;
-    const mongoState = mongoose.connection.readyState;
-    const mongoStateMap: Record<number, string> = {
-      0: 'डिस्कनेक्टेड (Disconnected)',
-      1: 'कनेक्टेड (Connected ✅)',
-      2: 'कनेक्ट हो रहा है (Connecting...)',
-      3: 'डिस्कनेक्ट हो रहा है (Disconnecting...)',
-    };
-
-    let suwayomiConnected = false;
-    try {
-      const suwRes = await axios.post(
-        `${config.suwayomiUrl}/api/graphql`,
-        { query: '{ mangas(first: 1) { totalCount } }' },
-        { timeout: 2000 }
-      );
-      suwayomiConnected = !suwRes.data.errors;
-    } catch {
-      suwayomiConnected = false;
-    }
-
-    res.json({
-      environment: config.environment,
-      environmentLabelHindi: isProd
-        ? '🚀 प्रोडक्शन वातावरण (Production)'
-        : '🛠️ डेवलपमेंट वातावरण (Development)',
-      mode: isProd ? 'PRODUCTION' : 'DEVELOPMENT',
-      isAllInOne: config.isAllInOne,
-      urls: {
-        backend: {
-          clientApi: isProd ? '/api/video' : `http://localhost:${config.port}/api/video`,
-          internalPort: config.port,
-        },
-        suwayomi: {
-          clientApi: isProd ? '/suwayomi' : config.suwayomiUrl,
-          internalUrl: config.suwayomiUrl,
-          connected: suwayomiConnected,
-          statusHindi: suwayomiConnected ? '🟢 सुचारू रूप से कनेक्टेड' : '🔴 डिस्कनेक्टेड (जांचें कि Suwayomi चालू है)',
-        },
-        database: {
-          uri: config.mongoUri,
-          state: mongoStateMap[mongoState] || 'अज्ञात',
-          connected: mongoState === 1,
-        },
-      },
-      instructionsHindi: isProd
-        ? 'प्रोडक्शन मोड में Nginx रिवर्स प्रॉक्सी `/api/` को बैकएंड और `/suwayomi/` को Suwayomi सर्वर पर स्वचालित रूट करता है।'
-        : 'डेवलपमेंट मोड में Vite प्रॉक्सी या लोकल पोर्ट (5000 व 4567) के जरिए सीधे संचार होता है।',
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -745,6 +679,44 @@ router.delete('/chapter-cache/:chapterId', async (req: Request, res: Response) =
     const { chapterId } = req.params;
     await chapterCacheService.deleteChapterData(chapterId);
     res.json({ success: true, message: `Chapter cache cleared for ${chapterId}` });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Auto-Save Project: Continuously & silently save studio project state into MongoDB
+ */
+router.post('/project/current', async (req: Request, res: Response) => {
+  try {
+    const { title, description, aspectRatio, fps, scenes, bgMusicUrl, totalDuration } = req.body;
+    const project = await ProjectModel.findOneAndUpdate(
+      { projectId: 'current' },
+      {
+        projectId: 'current',
+        title: title || 'My Anime Video',
+        description: description || '',
+        aspectRatio: aspectRatio || '16:9',
+        fps: fps || 30,
+        scenes: scenes || [],
+        bgMusicUrl: bgMusicUrl || '',
+        totalDuration: totalDuration || 0,
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    res.json({ success: true, project });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Retrieve Auto-Saved Studio Project from MongoDB
+ */
+router.get('/project/current', async (req: Request, res: Response) => {
+  try {
+    const project = await ProjectModel.findOne({ projectId: 'current' });
+    res.json({ success: true, project });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

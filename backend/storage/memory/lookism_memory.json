@@ -21,54 +21,60 @@
     },
     {
       "name": "डैनियल पार्क (Daniel Park)",
+      "aliases": [],
       "role": "नायक (Protagonist)",
       "description": "एक गोल-मटोल, कमजोर और डरा हुआ हाई स्कूल छात्र, जो रोज़ाना स्कूल में खौफनाक बुलिंग का शिकार होता है।",
+      "fullBio": "",
       "keyTraits": [
         "मासूम",
         "बेबस",
         "अंदर ही अंदर घुटने वाला"
       ],
-      "secretsOrMysteries": [
-        "भविष्य में दो शरीरों का रहस्यमयी मालिक बनने वाला"
-      ],
       "firstAppearedChapterId": "4890",
       "firstAppearedChapter": "Ep. 1 (ch. 1)",
       "lastSeenChapterId": "4890",
-      "lastSeenChapter": "Ep. 1 (ch. 1)"
+      "lastSeenChapter": "Ep. 1 (ch. 1)",
+      "secretsOrMysteries": [
+        "भविष्य में दो शरीरों का रहस्यमयी मालिक बनने वाला"
+      ]
     },
     {
       "name": "लोगन ली (Logan Lee)",
+      "aliases": [],
       "role": "खलनायक (Antagonist)",
       "description": "स्कूल का सबसे क्रूर और विशालकाय बुली, जो डैनियल को अपना पालतू गुलाम बनाकर रखता है।",
+      "fullBio": "",
       "keyTraits": [
         "हिंसक",
         "बेरहम",
         "घमंडी"
       ],
-      "secretsOrMysteries": [
-        "मार्शल आर्ट्स और गुंडागर्दी में महारत"
-      ],
       "firstAppearedChapterId": "4890",
       "firstAppearedChapter": "Ep. 1 (ch. 1)",
       "lastSeenChapterId": "4890",
-      "lastSeenChapter": "Ep. 1 (ch. 1)"
+      "lastSeenChapter": "Ep. 1 (ch. 1)",
+      "secretsOrMysteries": [
+        "मार्शल आर्ट्स और गुंडागर्दी में महारत"
+      ]
     },
     {
       "name": "डैनियल की माँ (Daniel's Mom / Mrs. Park)",
+      "aliases": [],
       "role": "साथी (Ally)",
       "description": "एक गरीब और सीधी-साधी माँ जो रात-दिन मेहनत करके डैनियल को पालती है, पर बेटे का दर्द देखकर शेरनी बन जाती है।",
+      "fullBio": "",
       "keyTraits": [
         "मेहनती",
         "त्यागी",
         "असीम ममता"
       ],
-      "secretsOrMysteries": [
-        "बेटे की खातिर किसी भी हद तक जाने का जज्बा"
-      ],
       "firstAppearedChapterId": "4890",
       "firstAppearedChapter": "Ep. 1 (ch. 1)",
       "lastSeenChapterId": "4890",
-      "lastSeenChapter": "Ep. 1 (ch. 1)"
+      "lastSeenChapter": "Ep. 1 (ch. 1)",
+      "secretsOrMysteries": [
+        "बेटे की खातिर किसी भी हद तक जाने का जज्बा"
+      ]
     }
   ],
   "pastChapters": [
@@ -86,5 +92,5 @@
     "क्या डैनियल की माँ इस खूंखार बुली लोगन ली से अपने बेटे को बचा पाएगी?",
     "क्या डैनियल कभी इस नरक जैसी जिंदगी से बाहर निकल पाएगा?"
   ],
-  "updatedAt": "2026-09-10T14:32:05.078Z"
+  "updatedAt": "2026-09-10T17:04:24.912Z"
 }

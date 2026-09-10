@@ -128,12 +128,48 @@ export default function App() {
 
   const totalFrames = Math.max(1, Math.round(totalDuration * fps));
 
-  // Check backend status on mount
+  const isProjectInitialMount = useRef(true);
+
+  // Check backend status and restore auto-saved project from MongoDB on mount
   useEffect(() => {
     api.getStatus().then((status) => {
       setBackendStatus(status);
     });
+
+    // Auto-restore last saved project from MongoDB silently
+    api.getCurrentProject().then((proj) => {
+      if (proj && proj.scenes && proj.scenes.length > 0) {
+        setScenes(proj.scenes);
+        if (proj.title) setProjectTitle(proj.title);
+        if (proj.description) setProjectDesc(proj.description);
+        if (proj.aspectRatio) setAspectRatio(proj.aspectRatio);
+        if (proj.bgMusicUrl) setBgMusicUrl(proj.bgMusicUrl);
+      }
+    }).catch(() => {});
   }, []);
+
+  // Continuous silent auto-save of active studio project into MongoDB (no prompts or alerts)
+  useEffect(() => {
+    if (isProjectInitialMount.current) {
+      isProjectInitialMount.current = false;
+      return;
+    }
+    if (!scenes || scenes.length === 0) return;
+
+    const timer = setTimeout(() => {
+      api.saveCurrentProject({
+        title: projectTitle,
+        description: projectDesc,
+        aspectRatio,
+        fps,
+        scenes,
+        bgMusicUrl,
+        totalDuration,
+      });
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [scenes, projectTitle, projectDesc, aspectRatio, bgMusicUrl, totalDuration]);
 
   // Sync player timecode
   useEffect(() => {

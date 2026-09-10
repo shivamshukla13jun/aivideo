@@ -1,22 +1,17 @@
 version: '3.8'
 
 # ==============================================================================
-# 🚀 AI Video Studio & Anime/Manga Production Docker Compose Stack
+# 🚀 AI Video Studio & Anime/Manga Docker Compose Stack
 # ==============================================================================
-# यह कम्पोज़ फ़ाइल 4 सेवाओं को अलग-अलग कंटेनर्स में प्रोडक्शन रेडी चलाती है:
-# 1. suwayomi: Suwayomi (Tachidesk) Manga/Anime Server
-# 2. mongodb: MongoDB डेटाबेस (चैप्टर कैश, सीन मेमोरी, सबटाइटल)
-# 3. backend: Node.js, Express, FFmpeg, Gemini AI इंजन
-# 4. frontend: React, Vite, Nginx रिवर्स प्रॉक्सी (/api और /suwayomi रूटिंग के साथ)
+# यह एकल कम्पोज़ फ़ाइल सभी 4 सेवाओं को चलाती है:
+# 1. suwayomi: Suwayomi (Tachidesk) Anime/Manga Server (Port 4567)
+# 2. mongodb: MongoDB Database (Port 27017)
+# 3. backend: Node.js, Express, FFmpeg, Gemini AI Engine (Port 5000)
+# 4. frontend: React, Vite, Nginx Web Server (Port 80)
 #
-# 📌 चलाने का कमांड:
-# docker compose up -d
-#
-# 📌 स्थिति देखने का कमांड:
-# docker compose ps
-#
-# 📌 लॉग्स देखने का कमांड:
-# docker compose logs -f
+# 📌 सभी सेटिंग्स एकल .env फ़ाइल से ली जाती हैं।
+# 📌 चलाने का कमांड: docker compose up -d
+# 📌 बंद करने का कमांड: docker compose down
 # ==============================================================================
 
 services:
@@ -38,15 +33,9 @@ services:
       - suwayomi_data:/home/suwayomi/.local/share/Tachidesk
     networks:
       - aivideo-network
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:4567/api/v1/meta || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
   # ---------------------------------------------------------------------------
-  # 🗄️ 2. MongoDB Database (Persists Chapter Cache, Story Memory & Projects)
+  # 🗄️ 2. MongoDB Database
   # ---------------------------------------------------------------------------
   mongodb:
     image: mongo:7
@@ -58,15 +47,9 @@ services:
       - mongodb_data:/data/db
     networks:
       - aivideo-network
-    healthcheck:
-      test: ["CMD-SHELL", "mongosh --eval 'db.runCommand({ ping: 1 })' || exit 1"]
-      interval: 20s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
 
   # ---------------------------------------------------------------------------
-  # 🎬 3. AI Video Studio Backend (Node.js + Express + FFmpeg + Gemini AI)
+  # 🎬 3. AI Video Studio Backend
   # ---------------------------------------------------------------------------
   backend:
     build:
@@ -75,26 +58,25 @@ services:
     container_name: aivideo-backend
     restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "${PORT:-5000}:5000"
+    env_file:
+      - .env
     environment:
-      - NODE_ENV=production
       - PORT=5000
-      - MONGODB_URI=mongodb://mongodb:27017/aivideo
-      - SUWAYOMI_URL=http://suwayomi:4567
-      - CLIENT_URL=http://localhost
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/aivideo}
+      - SUWAYOMI_URL=${SUWAYOMI_URL:-http://suwayomi:4567}
+      - CLIENT_URL=${CLIENT_URL:-http://localhost}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
     volumes:
       - backend_storage:/app/storage
     depends_on:
-      mongodb:
-        condition: service_started
-      suwayomi:
-        condition: service_started
+      - mongodb
+      - suwayomi
     networks:
       - aivideo-network
 
   # ---------------------------------------------------------------------------
-  # 🌐 4. Frontend Web Studio (React + Vite + Nginx Reverse Proxy)
+  # 🌐 4. Frontend Web Studio
   # ---------------------------------------------------------------------------
   frontend:
     build:
@@ -122,7 +104,7 @@ volumes:
     name: aivideo_backend_storage
 
 # -----------------------------------------------------------------------------
-# 🔗 Isolated Network
+# 🔗 Network
 # -----------------------------------------------------------------------------
 networks:
   aivideo-network:

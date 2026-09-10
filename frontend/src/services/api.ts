@@ -21,27 +21,15 @@ export const api = {
       const res = await axios.get(`${API_BASE}/status`, { timeout: 4000 });
       return res.data;
     } catch {
-      const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       return {
         status: 'offline',
-        environment: isDev ? 'development' : 'production',
-        environmentLabelHindi: isDev ? '🛠️ डेवलपमेंट वातावरण (Development)' : '🚀 प्रोडक्शन वातावरण (Production)',
-        backendApiUrl: isDev ? 'http://localhost:5000/api/video' : '/api/video',
-        suwayomiApiUrl: isDev ? 'http://127.0.0.1:4567' : '/suwayomi',
+        backendApiUrl: '/api/video',
+        suwayomiApiUrl: '/suwayomi',
         suwayomiConnected: false,
         mongoConnected: false,
         ffmpegAvailable: false,
         geminiConfigured: false,
       };
-    }
-  },
-
-  async getEnvironment() {
-    try {
-      const res = await axios.get(`${API_BASE}/environment`, { timeout: 4000 });
-      return res.data;
-    } catch {
-      return null;
     }
   },
 
@@ -222,6 +210,31 @@ export const api = {
   async clearChapterCache(chapterId: string | number) {
     const res = await axios.delete(`${API_BASE}/chapter-cache/${encodeURIComponent(String(chapterId))}`);
     return res.data;
+  },
+
+  /**
+   * Continuous silent auto-save of studio project into MongoDB
+   */
+  async saveCurrentProject(projectData: any) {
+    try {
+      const res = await axios.post(`${API_BASE}/project/current`, projectData);
+      return res.data?.project;
+    } catch (err) {
+      console.warn('[Auto-Save Project Silent Error]', err);
+      return null;
+    }
+  },
+
+  /**
+   * Retrieve auto-saved studio project from MongoDB
+   */
+  async getCurrentProject() {
+    try {
+      const res = await axios.get(`${API_BASE}/project/current`);
+      return res.data?.project;
+    } catch {
+      return null;
+    }
   },
 };
 

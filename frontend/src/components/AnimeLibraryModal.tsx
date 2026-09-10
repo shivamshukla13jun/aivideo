@@ -86,6 +86,8 @@ export const AnimeLibraryModal: React.FC<AnimeLibraryModalProps> = ({
   const [streamSnippet, setStreamSnippet] = useState<string>('');
   const [cachedChapterData, setCachedChapterData] = useState<any | null>(null);
   const [isLoadingCache, setIsLoadingCache] = useState<boolean>(false);
+  const [isThemeSaved, setIsThemeSaved] = useState<boolean>(false);
+  const isInitialThemeMount = useRef(true);
 
   // Loading & Filter states
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -100,6 +102,32 @@ export const AnimeLibraryModal: React.FC<AnimeLibraryModalProps> = ({
       loadLibrary();
     }
   }, [isOpen]);
+
+  // Silent background auto-save for story theme into MongoDB
+  useEffect(() => {
+    if (isInitialThemeMount.current) {
+      isInitialThemeMount.current = false;
+      return;
+    }
+    if (!selectedManga || !mangaTheme.trim()) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const updated = await api.saveStoryMemory(selectedManga.title, {
+          ...(storyMemory || {}),
+          mangaTitle: selectedManga.title,
+          theme: mangaTheme,
+        });
+        setStoryMemory(updated);
+        setIsThemeSaved(true);
+        setTimeout(() => setIsThemeSaved(false), 2500);
+      } catch (err) {
+        console.warn('[Auto-Save Theme Error]', err);
+      }
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [mangaTheme, selectedManga]);
 
   // Socket.IO real-time progress listener & connection status
   useEffect(() => {
@@ -179,21 +207,6 @@ export const AnimeLibraryModal: React.FC<AnimeLibraryModalProps> = ({
     }
   };
 
-  const handleSaveTheme = async () => {
-    if (!selectedManga) return;
-    try {
-      const updated = await api.saveStoryMemory(selectedManga.title, {
-        ...(storyMemory || {}),
-        mangaTitle: selectedManga.title,
-        theme: mangaTheme,
-      });
-      setStoryMemory(updated);
-      alert('Story theme saved to MongoDB database!');
-    } catch (err: any) {
-      alert(`Failed to save theme to database: ${err.message}`);
-    }
-  };
-
   const handleAddCharacterToDB = async () => {
     if (!selectedManga || !newCharName.trim()) return;
     try {
@@ -218,9 +231,8 @@ export const AnimeLibraryModal: React.FC<AnimeLibraryModalProps> = ({
       setStoryMemory(updated);
       setNewCharName('');
       setNewCharDesc('');
-      alert(`Character "${newCharName}" saved to MongoDB database!`);
     } catch (err: any) {
-      alert(`Failed to save character to database: ${err.message}`);
+      console.warn('Failed to auto-save character to database:', err);
     }
   };
 
@@ -585,38 +597,6 @@ export const AnimeLibraryModal: React.FC<AnimeLibraryModalProps> = ({
                 <h2 style={{ fontSize: '18px', fontWeight: 700, margin: 0, color: '#fff' }}>
                   Anime & Manga Studio
                 </h2>
-                {/* Environment Mode Badge */}
-                <span
-                  style={{
-                    fontSize: '11px',
-                    padding: '2px 8px',
-                    borderRadius: '10px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    backgroundColor:
-                      backendStatus?.environment === 'production'
-                        ? 'rgba(16, 185, 129, 0.15)'
-                        : 'rgba(245, 158, 11, 0.15)',
-                    color:
-                      backendStatus?.environment === 'production' ? '#34d399' : '#fbbf24',
-                    border: `1px solid ${
-                      backendStatus?.environment === 'production'
-                        ? 'rgba(16, 185, 129, 0.3)'
-                        : 'rgba(245, 158, 11, 0.3)'
-                    }`,
-                    fontWeight: 600,
-                  }}
-                  title={
-                    backendStatus?.environment === 'production'
-                      ? 'Production वातावरण: प्रॉक्सी /suwayomi और /api सक्रिय हैं'
-                      : 'Development वातावरण: स्थानीय पोर्ट 4567 व 5000 सक्रिय हैं'
-                  }
-                >
-                  {backendStatus?.environment === 'production'
-                    ? '🚀 Production'
-                    : '🛠️ Development'}
-                </span>
                 {isConnected !== null && (
                   <span
                     style={{
@@ -639,9 +619,7 @@ export const AnimeLibraryModal: React.FC<AnimeLibraryModalProps> = ({
                         backgroundColor: isConnected ? '#4ade80' : '#f87171',
                       }}
                     />
-                    {isConnected
-                      ? `Suwayomi Connected (${backendStatus?.environment === 'production' ? '/suwayomi' : ':4567'})`
-                      : 'Suwayomi Offline'}
+                    {isConnected ? 'Suwayomi Connected' : 'Suwayomi Offline'}
                   </span>
                 )}
                 <span
@@ -1157,13 +1135,23 @@ export const AnimeLibraryModal: React.FC<AnimeLibraryModalProps> = ({
                       outline: 'none',
                     }}
                   />
-                  <button
-                    className="btn-secondary"
-                    onClick={handleSaveTheme}
-                    style={{ padding: '4px 10px', fontSize: '11px' }}
+                  <span
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '11px',
+                      borderRadius: '6px',
+                      background: isThemeSaved ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.06)',
+                      color: isThemeSaved ? '#34d399' : '#94a3b8',
+                      border: `1px solid ${isThemeSaved ? 'rgba(16, 185, 129, 0.4)' : 'rgba(255, 255, 255, 0.1)'}`,
+                      whiteSpace: 'nowrap',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontWeight: 600,
+                    }}
                   >
-                    Save Theme to DB
-                  </button>
+                    💾 {isThemeSaved ? 'MongoDB में सुरक्षित ✅' : 'स्वतः सहेजा जाता है'}
+                  </span>
                 </div>
 
                 {/* EXPANDABLE CHARACTER & LORE INSPECTOR DRAWER */}
