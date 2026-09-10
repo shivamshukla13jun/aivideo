@@ -1,0 +1,128 @@
+# syntax=docker/dockerfile:1
+# ==============================================================================
+# 🎬 AI Video Studio: All-in-One Dockerfile (Frontend + Backend + Suwayomi Server)
+# ==============================================================================
+# यह सिंगल डॉकर इमेज पूरे प्रोजेक्ट (Frontend, Backend, Suwayomi Server) को 
+# एक ही कंटेनर में बंडल करती है जिसे सीधे किसी भी सर्वर पर डिप्लॉय किया जा सकता है।
+#
+# 📌 बिल्ड कमांड (प्रोजेक्ट रूट फोल्डर से):
+# docker build -f backend/Dockerfile.all-in-one -t aivideo-all-in-one:latest .
+#
+# 📌 रन कमांड:
+# docker run -d --name aivideo-app \
+#   -p 80:80 \
+#   -p 5000:5000 \
+#   -p 4567:4567 \
+#   -v aivideo_storage:/app/backend/storage \
+#   -v suwayomi_data:/home/suwayomi/.local/share/Tachidesk \
+#   -e GEMINI_API_KEY="your_api_key_here" \
+#   -e MONGODB_URI="mongodb://your_mongo_host:27017/aivideo" \
+#   aivideo-all-in-one:latest
+# ==============================================================================
+
+# -------------------------------------------------------------
+# स्टेज 1: Frontend Build Stage (React + Vite SPA)
+# -------------------------------------------------------------
+FROM node:20-alpine AS frontend-builder
+WORKDIR /app/frontend
+
+COPY frontend/package*.json ./
+RUN npm ci
+
+COPY frontend/tsconfig*.json frontend/vite.config.ts frontend/index.html ./
+COPY frontend/src/ ./src/
+COPY frontend/public/ ./public/
+
+RUN npm run build
+
+# -------------------------------------------------------------
+# स्टेज 2: Backend Build Stage (Node.js + Express + TypeScript)
+# -------------------------------------------------------------
+FROM node:20-alpine AS backend-builder
+WORKDIR /app/backend
+
+RUN apk add --no-cache python3 make g++
+
+COPY backend/package*.json ./
+RUN npm ci
+
+COPY backend/tsconfig.json ./
+COPY backend/src/ ./src/
+
+RUN npm run build
+
+# -------------------------------------------------------------
+# स्टेज 3: All-in-One Unified Runtime (Based on Suwayomi Server)
+# -------------------------------------------------------------
+FROM ghcr.io/suwayomi/tachidesk:latest AS final
+
+USER root
+
+# आवश्यक पैकेज, Node.js 20, Nginx, FFmpeg और Supervisor इनस्टॉल करें
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+        gnupg \
+        nginx \
+        ffmpeg \
+        supervisor \
+        procps && \
+    mkdir -p /etc/apt/keyrings && \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends nodejs && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Nginx वेब रूट में फ्रंटएंड एसेट्स कॉपी करें
+RUN rm -rf /var/www/html/*
+COPY --from=frontend-builder /app/frontend/dist /var/www/html
+
+# Nginx रिवर्स प्रॉक्सी कॉन्फ़िगरेशन
+COPY backend/nginx.all-in-one.conf /etc/nginx/sites-available/default
+RUN ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
+
+# बैकएंड वर्कस्पेस सेटअप
+WORKDIR /app/backend
+COPY backend/package*.json ./
+RUN npm ci --omit=dev
+
+# कंपाइल्ड बैकएंड कोड कॉपी करें
+COPY --from=backend-builder /app/backend/dist ./dist
+
+# स्टोरेज डायरेक्टरीज़ तैयार करें
+RUN mkdir -p /app/backend/storage/uploads \
+             /app/backend/storage/videos \
+             /app/backend/storage/memory \
+             /var/log \
+             /var/run && \
+    chown -R suwayomi:suwayomi /home/suwayomi
+
+# सुपरवाइज़र कॉन्फ़िगरेशन कॉपी करें
+COPY backend/supervisord.conf /etc/supervisor/supervisord.conf
+
+# वातावरण चर (Environment Variables)
+ENV NODE_ENV=production
+ENV IS_ALL_IN_ONE=true
+ENV PORT=5000
+ENV CLIENT_URL=""
+ENV SUWAYOMI_URL=http://127.0.0.1:4567
+ENV MONGODB_URI=mongodb://127.0.0.1:27017/aivideo
+ENV BIND_IP=0.0.0.0
+ENV BIND_PORT=4567
+ENV WEB_UI_ENABLED=true
+
+# पोर्ट्स एक्सपोज़ करें
+# 80: Nginx (Frontend + Reverse Proxy to Backend /api and Suwayomi /suwayomi)
+# 5000: Node.js Backend API
+# 4567: Suwayomi Anime/Manga Server
+EXPOSE 80 5000 4567
+
+# डेटा पर्सिस्टेंस वॉल्यूम
+VOLUME ["/home/suwayomi/.local/share/Tachidesk", "/app/backend/storage"]
+
+# सुपरवाइज़र के माध्यम से सभी 3 सेवाएं (Nginx + Backend + Suwayomi) चलाएं
+CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]

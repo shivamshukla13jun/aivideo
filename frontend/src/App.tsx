@@ -19,6 +19,7 @@ import { SubtitleInspector } from './components/SubtitleInspector';
 import { AIGenerateModal } from './components/AIGenerateModal';
 import { ExportModal } from './components/ExportModal';
 import { SettingsModal } from './components/SettingsModal';
+import { AnimeLibraryModal } from './components/AnimeLibraryModal';
 import { RemotionComposition } from './components/videoEditor/RemotionComposition';
 import { Scene, VideoProject, ASPECT_RATIOS, DEFAULT_SUBTITLE_STYLE } from './types/video';
 import { api } from './services/api';
@@ -104,9 +105,11 @@ export default function App() {
   const [isMuted, setIsMuted] = useState(false);
 
   // Modals
+  const [isAnimeLibraryOpen, setIsAnimeLibraryOpen] = useState(false);
   const [isAIGeneratorOpen, setIsAIGeneratorOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [bgMusicUrl, setBgMusicUrl] = useState<string>('');
 
   // API Key & Backend status
   const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('gemini_api_key') || '');
@@ -246,6 +249,23 @@ export default function App() {
     playerRef.current?.seekTo(0);
   };
 
+  // Anime Chapter Panels import callback
+  const handleImportAnimeScenes = (
+    newScenes: Scene[],
+    title: string,
+    description: string,
+    globalAudioUrl?: string
+  ) => {
+    setScenes(newScenes);
+    setProjectTitle(title);
+    setProjectDesc(description);
+    if (globalAudioUrl) {
+      setBgMusicUrl(globalAudioUrl);
+    }
+    setSelectedSceneIndex(0);
+    playerRef.current?.seekTo(0);
+  };
+
   // Dimensions
   const currentDim = ASPECT_RATIOS[aspectRatio] || ASPECT_RATIOS['16:9'];
   const currentTimeSec = (currentFrame / fps).toFixed(1);
@@ -256,6 +276,7 @@ export default function App() {
       <Navbar
         aspectRatio={aspectRatio}
         onAspectRatioChange={setAspectRatio}
+        onOpenAnimeLibrary={() => setIsAnimeLibraryOpen(true)}
         onOpenAIGenerator={() => setIsAIGeneratorOpen(true)}
         onOpenExport={() => setIsExportOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
@@ -300,7 +321,7 @@ export default function App() {
               <Player
                 ref={playerRef}
                 component={RemotionComposition}
-                inputProps={{ scenes }}
+                inputProps={{ scenes, bgMusicUrl }}
                 durationInFrames={totalFrames}
                 compositionWidth={currentDim.width}
                 compositionHeight={currentDim.height}
@@ -407,6 +428,7 @@ export default function App() {
               onDeleteSlide={handleDeleteSlide}
               onDuplicateSlide={handleDuplicateSlide}
               onMoveSlide={handleMoveSlide}
+              onOpenAnimeLibrary={() => setIsAnimeLibraryOpen(true)}
             />
           </div>
         </div>
@@ -488,7 +510,16 @@ export default function App() {
           height: currentDim.height,
           scenes,
           totalDuration,
+          bgMusicUrl,
         }}
+      />
+
+      <AnimeLibraryModal
+        isOpen={isAnimeLibraryOpen}
+        onClose={() => setIsAnimeLibraryOpen(false)}
+        onImportScenes={handleImportAnimeScenes}
+        apiKey={apiKey}
+        backendStatus={backendStatus}
       />
 
       <SettingsModal

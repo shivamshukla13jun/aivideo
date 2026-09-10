@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { Plus, Trash2, Copy, ChevronLeft, ChevronRight, Upload, Sparkles, Clock, Move } from 'lucide-react';
+import { Plus, Trash2, Copy, ChevronLeft, ChevronRight, Upload, Sparkles, Clock, Move, BookOpen } from 'lucide-react';
 import { Scene, TransitionEffect, DEFAULT_SUBTITLE_STYLE } from '../types/video';
 
 interface SlideManagerProps {
@@ -11,6 +11,7 @@ interface SlideManagerProps {
   onDeleteSlide: (index: number) => void;
   onDuplicateSlide: (index: number) => void;
   onMoveSlide: (fromIndex: number, toIndex: number) => void;
+  onOpenAnimeLibrary?: () => void;
 }
 
 const EFFECTS: Array<{ value: TransitionEffect; label: string; icon: string }> = [
@@ -34,6 +35,7 @@ export const SlideManager: React.FC<SlideManagerProps> = ({
   onDeleteSlide,
   onDuplicateSlide,
   onMoveSlide,
+  onOpenAnimeLibrary,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const activeScene = scenes[selectedSceneIndex];
@@ -157,6 +159,34 @@ export const SlideManager: React.FC<SlideManagerProps> = ({
           <Plus size={24} color="var(--primary-cyan)" />
           <span style={{ fontSize: '11px', fontWeight: 600 }}>Add Slide</span>
         </button>
+
+        {/* Import Anime Panels */}
+        {onOpenAnimeLibrary && (
+          <button
+            onClick={onOpenAnimeLibrary}
+            style={{
+              flexShrink: 0,
+              width: '110px',
+              height: '110px',
+              borderRadius: '12px',
+              border: '2px dashed rgba(6, 182, 212, 0.4)',
+              background: 'rgba(6, 182, 212, 0.04)',
+              color: '#38bdf8',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+            className="glow-hover"
+            title="Import Anime Chapter Panels"
+          >
+            <BookOpen size={24} color="var(--primary-cyan)" />
+            <span style={{ fontSize: '11px', fontWeight: 600 }}>Anime Panels</span>
+          </button>
+        )}
       </div>
 
       {/* Selected Slide Quick Actions Bar */}

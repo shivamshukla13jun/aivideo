@@ -1,6 +1,7 @@
-import React from 'react';
-import { Type, Plus, Trash2, AlignCenter, AlignJustify, Palette, Mic } from 'lucide-react';
-import { Scene, Subtitle, DEFAULT_SUBTITLE_STYLE } from '../types/video';
+import React, { useState, useRef } from 'react';
+import { Type, Plus, Trash2, AlignCenter, AlignJustify, Palette, Mic, Music, Upload, Volume2, Sparkles } from 'lucide-react';
+import { Scene, Subtitle, DEFAULT_SUBTITLE_STYLE, AudioClip } from '../types/video';
+import { api } from '../services/api';
 
 interface SubtitleInspectorProps {
   scene: Scene;
@@ -9,6 +10,122 @@ interface SubtitleInspectorProps {
 
 export const SubtitleInspector: React.FC<SubtitleInspectorProps> = ({ scene, onUpdateScene }) => {
   const subtitles = scene.subtitles || [];
+  const audioClips = scene.audioClips || [];
+
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordDuration, setRecordDuration] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<number | null>(null);
+  const recordDurationRef = useRef<number>(0);
+
+  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const res = await api.uploadMedia(file);
+      const newClip: AudioClip = {
+        id: `audio_${Date.now()}`,
+        url: res.url,
+        name: file.name,
+        duration: scene.duration,
+        startTime: 0,
+        volume: 1,
+        type: 'voiceover',
+      };
+      onUpdateScene({ audioClips: [...audioClips, newClip] });
+    } catch (err: any) {
+      alert(`Audio upload failed: ${err.message}`);
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      recordDurationRef.current = 0;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const recordedSecs = Math.max(1, recordDurationRef.current);
+        const newSlideDuration = Math.max(scene.duration, recordedSecs + 0.5);
+
+        // Also extend subtitles to cover recording duration
+        const adjustedSubs = subtitles.map((sub) => ({
+          ...sub,
+          endTime: Math.max(sub.endTime, Math.min(newSlideDuration - 0.2, recordedSecs)),
+        }));
+
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const file = new File([blob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
+
+        try {
+          const res = await api.uploadMedia(file);
+          const newClip: AudioClip = {
+            id: `audio_${Date.now()}`,
+            url: res.url,
+            name: `My Voiceover (${recordedSecs}s)`,
+            duration: recordedSecs,
+            startTime: 0,
+            volume: 1,
+            type: 'voiceover',
+          };
+          onUpdateScene({
+            audioClips: [...audioClips, newClip],
+            duration: Math.round(newSlideDuration * 10) / 10,
+            subtitles: adjustedSubs.length ? adjustedSubs : undefined,
+          });
+        } catch {
+          const localUrl = URL.createObjectURL(blob);
+          const newClip: AudioClip = {
+            id: `audio_${Date.now()}`,
+            url: localUrl,
+            name: `My Voiceover (${recordedSecs}s)`,
+            duration: recordedSecs,
+            startTime: 0,
+            volume: 1,
+            type: 'voiceover',
+          };
+          onUpdateScene({
+            audioClips: [...audioClips, newClip],
+            duration: Math.round(newSlideDuration * 10) / 10,
+            subtitles: adjustedSubs.length ? adjustedSubs : undefined,
+          });
+        }
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordDuration(0);
+      timerRef.current = window.setInterval(() => {
+        recordDurationRef.current += 1;
+        setRecordDuration(recordDurationRef.current);
+      }, 1000);
+    } catch (err: any) {
+      alert(`Microphone error: ${err.message}`);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+  };
+
+  const handleDeleteAudio = (clipId: string) => {
+    onUpdateScene({ audioClips: audioClips.filter((c) => c.id !== clipId) });
+  };
 
   const handleAddSubtitle = () => {
     const newSub: Subtitle = {
@@ -41,14 +158,16 @@ export const SubtitleInspector: React.FC<SubtitleInspectorProps> = ({ scene, onU
             Subtitles & Narration
           </h3>
         </div>
-        <button
-          className="btn-secondary"
-          onClick={handleAddSubtitle}
-          style={{ padding: '4px 10px', fontSize: '12px' }}
-        >
-          <Plus size={14} />
-          <span>Add Caption</span>
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            className="btn-secondary"
+            onClick={handleAddSubtitle}
+            style={{ padding: '4px 10px', fontSize: '12px' }}
+          >
+            <Plus size={14} />
+            <span>Add Caption</span>
+          </button>
+        </div>
       </div>
 
       {/* Voiceover / Narration Script preview */}
@@ -194,6 +313,140 @@ export const SubtitleInspector: React.FC<SubtitleInspectorProps> = ({ scene, onU
             </div>
           ))
         )}
+      </div>
+
+      {/* Voiceover & Audio for Scene */}
+      <div style={{
+        marginTop: '8px',
+        paddingTop: '14px',
+        borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Music size={16} color="var(--primary-cyan)" />
+            <h4 style={{ fontSize: '13px', fontWeight: 600, margin: 0 }}>Slide Audio & Voiceover</h4>
+          </div>
+          <label style={{
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            fontSize: '11px',
+            color: 'var(--primary-cyan)',
+          }}>
+            <Upload size={12} />
+            <span>Upload</span>
+            <input type="file" accept="audio/*" style={{ display: 'none' }} onChange={handleAudioUpload} />
+          </label>
+        </div>
+
+        {/* Record button */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {!isRecording ? (
+            <button
+              className="btn-secondary"
+              onClick={startRecording}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                fontSize: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                borderColor: 'rgba(239, 68, 68, 0.4)',
+              }}
+            >
+              <Mic size={15} color="#f87171" />
+              <span>Record Voice Narration (Read Subtitles)</span>
+            </button>
+          ) : (
+            <button
+              className="btn-secondary"
+              onClick={stopRecording}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                fontSize: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                backgroundColor: 'rgba(239, 68, 68, 0.25)',
+                borderColor: '#ef4444',
+                color: '#fca5a5',
+              }}
+            >
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ef4444' }} />
+              <span>Stop Recording ({recordDuration}s)</span>
+            </button>
+          )}
+        </div>
+
+        {/* Live Teleprompter when Recording */}
+        {isRecording && (
+          <div
+            style={{
+              background: 'rgba(239, 68, 68, 0.12)',
+              border: '1px solid rgba(239, 68, 68, 0.5)',
+              borderRadius: '10px',
+              padding: '12px 14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: '#fca5a5', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ef4444', display: 'inline-block' }} />
+                Live Teleprompter — Read Aloud Now ({recordDuration}s):
+              </span>
+            </div>
+            <div style={{ fontSize: '14px', fontWeight: 600, color: '#fff', lineHeight: 1.5, background: 'rgba(0,0,0,0.4)', padding: '10px 12px', borderRadius: '6px' }}>
+              {subtitles.length > 0
+                ? subtitles.map((s) => s.text).join(' ')
+                : (scene.narration || 'Speak your narration now!')}
+            </div>
+          </div>
+        )}
+
+
+        {/* Attached Audio Clips list */}
+        {audioClips.map((clip) => (
+          <div
+            key={clip.id}
+            style={{
+              padding: '8px 12px',
+              borderRadius: '8px',
+              background: 'rgba(255, 255, 255, 0.04)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+              <Volume2 size={14} color="var(--primary-cyan)" />
+              <span style={{ fontSize: '11px', color: '#fff', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                {clip.name}
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <audio controls src={clip.url} style={{ height: '26px', width: '130px' }} />
+              <button
+                onClick={() => handleDeleteAudio(clip.id)}
+                style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', padding: '2px' }}
+                title="Remove Audio"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

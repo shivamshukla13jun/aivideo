@@ -4,14 +4,23 @@ import { Scene, Subtitle, DEFAULT_SUBTITLE_STYLE } from './types';
 
 export interface RemotionCompositionProps extends Record<string, unknown> {
   scenes: Scene[];
+  bgMusicUrl?: string;
+  bgMusicVolume?: number;
 }
 
-export const RemotionComposition: React.FC<RemotionCompositionProps> = ({ scenes }) => {
+export const RemotionComposition: React.FC<RemotionCompositionProps> = ({
+  scenes,
+  bgMusicUrl,
+  bgMusicVolume = 0.7,
+}) => {
   const { fps } = useVideoConfig();
   const safeScenes = scenes || [];
 
   return (
     <AbsoluteFill style={{ backgroundColor: '#000000', overflow: 'hidden' }}>
+      {bgMusicUrl && (
+        <Audio src={bgMusicUrl} volume={bgMusicVolume} />
+      )}
       {safeScenes.map((scene, index) => {
         const durationInFrames = Math.max(1, Math.round(scene.duration * fps));
         const startInFrames = safeScenes

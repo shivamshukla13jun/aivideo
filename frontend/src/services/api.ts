@@ -12,13 +12,36 @@ export interface AISlideshowParams {
   apiKey?: string;
 }
 
+// Configure unlimited timeout globally for Gemini AI and heavy video processing
+axios.defaults.timeout = 0;
+
 export const api = {
   async getStatus() {
     try {
       const res = await axios.get(`${API_BASE}/status`, { timeout: 4000 });
       return res.data;
     } catch {
-      return { status: 'offline', ffmpegAvailable: false, geminiConfigured: false };
+      const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      return {
+        status: 'offline',
+        environment: isDev ? 'development' : 'production',
+        environmentLabelHindi: isDev ? '🛠️ डेवलपमेंट वातावरण (Development)' : '🚀 प्रोडक्शन वातावरण (Production)',
+        backendApiUrl: isDev ? 'http://localhost:5000/api/video' : '/api/video',
+        suwayomiApiUrl: isDev ? 'http://127.0.0.1:4567' : '/suwayomi',
+        suwayomiConnected: false,
+        mongoConnected: false,
+        ffmpegAvailable: false,
+        geminiConfigured: false,
+      };
+    }
+  },
+
+  async getEnvironment() {
+    try {
+      const res = await axios.get(`${API_BASE}/environment`, { timeout: 4000 });
+      return res.data;
+    } catch {
+      return null;
     }
   },
 
@@ -27,7 +50,7 @@ export const api = {
     if (params.apiKey) {
       headers['x-gemini-key'] = params.apiKey;
     }
-    const res = await axios.post(`${API_BASE}/ai-generate`, params, { headers });
+    const res = await axios.post(`${API_BASE}/ai-generate`, params, { headers, timeout: 0 });
     return res.data;
   },
 
@@ -38,7 +61,7 @@ export const api = {
     if (apiKey) {
       headers['x-gemini-key'] = apiKey;
     }
-    const res = await axios.post(`${API_BASE}/analyze-images`, formData, { headers });
+    const res = await axios.post(`${API_BASE}/analyze-images`, formData, { headers, timeout: 0 });
     return res.data;
   },
 
@@ -47,12 +70,22 @@ export const api = {
     formData.append('file', file);
     const res = await axios.post(`${API_BASE}/upload`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 0,
     });
     return res.data;
   },
 
+  async uploadMedia(file: File) {
+    return this.uploadFile(file);
+  },
+
+  async generateStory(params: AISlideshowParams) {
+    const data = await this.generateSlideshow(params);
+    return data?.data || data;
+  },
+
   async renderVideo(project: Partial<VideoProject>) {
-    const res = await axios.post(`${API_BASE}/render`, project);
+    const res = await axios.post(`${API_BASE}/render`, project, { timeout: 0 });
     return res.data;
   },
 
@@ -60,4 +93,137 @@ export const api = {
     const res = await axios.get(`${API_BASE}/list`);
     return res.data;
   },
+
+  async generateAnimeVideo(params: {
+    socketId?: string;
+    mangaId?: string | number;
+    mangaTitle: string;
+    chapterId?: string | number;
+    chapterName: string;
+    panels: Array<{ pageIndex: number; imageUrl: string }>;
+    apiKey?: string;
+  }) {
+    const headers: Record<string, string> = {};
+    if (params.apiKey) {
+      headers['x-gemini-key'] = params.apiKey;
+    }
+    const res = await axios.post(`${API_BASE}/generate-from-library`, params, { headers, timeout: 0 });
+    return res.data;
+  },
+
+
+  /**
+   * Real-Time Stream: Generate anime video subtitles with live progress updates
+   */
+  async generateAnimeVideoWithProgress(
+    params: {
+      socketId?: string;
+      mangaId?: string | number;
+      mangaTitle: string;
+      chapterId?: string | number;
+      chapterName: string;
+      panels: Array<{ pageIndex: number; imageUrl: string }>;
+      apiKey?: string;
+    },
+    onProgress: (progress: { step: string; message: string; percent: number }) => void
+  ) {
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (params.apiKey) {
+      headers['x-gemini-key'] = params.apiKey;
+    }
+
+    const response = await fetch(`${API_BASE}/generate-from-library-stream`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(params),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Server error (${response.status}): ${errText}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('Response streaming not supported by browser.');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finalResult: any = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split('\n\n');
+      buffer = blocks.pop() || '';
+
+      for (const block of blocks) {
+        if (!block.trim()) continue;
+        const eventMatch = block.match(/^event:\s*(.+)$/m);
+        const dataMatch = block.match(/^data:\s*(.+)$/m);
+        const eventName = eventMatch ? eventMatch[1].trim() : 'message';
+        const rawData = dataMatch ? dataMatch[1].trim() : '';
+
+        if (!rawData) continue;
+        try {
+          const parsed = JSON.parse(rawData);
+          if (eventName === 'progress') {
+            onProgress(parsed);
+          } else if (eventName === 'complete') {
+            finalResult = parsed;
+          } else if (eventName === 'error') {
+            throw new Error(parsed.message || 'Stream processing failed.');
+          }
+        } catch (parseErr: any) {
+          if (eventName === 'error') throw parseErr;
+        }
+      }
+    }
+
+    if (finalResult) {
+      return finalResult;
+    }
+    throw new Error('Stream finished without complete payload.');
+  },
+
+  async getStoryMemory(mangaTitle: string, mangaId?: string | number) {
+    const query = mangaId ? `?mangaId=${encodeURIComponent(String(mangaId))}` : '';
+    const res = await axios.get(`${API_BASE}/story-memory/${encodeURIComponent(mangaTitle)}${query}`);
+    return res.data?.memory;
+  },
+
+  async getStoryMemories() {
+    const res = await axios.get(`${API_BASE}/story-memories`);
+    return res.data?.memories || [];
+  },
+
+  async saveStoryMemory(mangaTitle: string, memory: any) {
+    const res = await axios.post(`${API_BASE}/story-memory/${encodeURIComponent(mangaTitle)}`, memory);
+    return res.data?.memory;
+  },
+
+  async deleteStoryMemory(mangaTitle: string) {
+    const res = await axios.delete(`${API_BASE}/story-memory/${encodeURIComponent(mangaTitle)}`);
+    return res.data;
+  },
+
+  async getChapterCache(chapterId: string | number, mangaId?: string | number) {
+    const query = mangaId ? `?mangaId=${encodeURIComponent(String(mangaId))}` : '';
+    const res = await axios.get(`${API_BASE}/chapter-cache/${encodeURIComponent(String(chapterId))}${query}`);
+    return res.data;
+  },
+
+  async clearChapterCache(chapterId: string | number) {
+    const res = await axios.delete(`${API_BASE}/chapter-cache/${encodeURIComponent(String(chapterId))}`);
+    return res.data;
+  },
 };
+
+
+

@@ -1,0 +1,130 @@
+version: '3.8'
+
+# ==============================================================================
+# 🚀 AI Video Studio & Anime/Manga Production Docker Compose Stack
+# ==============================================================================
+# यह कम्पोज़ फ़ाइल 4 सेवाओं को अलग-अलग कंटेनर्स में प्रोडक्शन रेडी चलाती है:
+# 1. suwayomi: Suwayomi (Tachidesk) Manga/Anime Server
+# 2. mongodb: MongoDB डेटाबेस (चैप्टर कैश, सीन मेमोरी, सबटाइटल)
+# 3. backend: Node.js, Express, FFmpeg, Gemini AI इंजन
+# 4. frontend: React, Vite, Nginx रिवर्स प्रॉक्सी (/api और /suwayomi रूटिंग के साथ)
+#
+# 📌 चलाने का कमांड:
+# docker compose up -d
+#
+# 📌 स्थिति देखने का कमांड:
+# docker compose ps
+#
+# 📌 लॉग्स देखने का कमांड:
+# docker compose logs -f
+# ==============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # 📚 1. Suwayomi Anime & Manga Server
+  # ---------------------------------------------------------------------------
+  suwayomi:
+    image: ghcr.io/suwayomi/tachidesk:latest
+    container_name: aivideo-suwayomi
+    restart: unless-stopped
+    ports:
+      - "4567:4567"
+    environment:
+      - BIND_IP=0.0.0.0
+      - BIND_PORT=4567
+      - WEB_UI_ENABLED=true
+      - TZ=Asia/Kolkata
+    volumes:
+      - suwayomi_data:/home/suwayomi/.local/share/Tachidesk
+    networks:
+      - aivideo-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:4567/api/v1/meta || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ---------------------------------------------------------------------------
+  # 🗄️ 2. MongoDB Database (Persists Chapter Cache, Story Memory & Projects)
+  # ---------------------------------------------------------------------------
+  mongodb:
+    image: mongo:7
+    container_name: aivideo-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - aivideo-network
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --eval 'db.runCommand({ ping: 1 })' || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ---------------------------------------------------------------------------
+  # 🎬 3. AI Video Studio Backend (Node.js + Express + FFmpeg + Gemini AI)
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aivideo-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - MONGODB_URI=mongodb://mongodb:27017/aivideo
+      - SUWAYOMI_URL=http://suwayomi:4567
+      - CLIENT_URL=http://localhost
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    volumes:
+      - backend_storage:/app/storage
+    depends_on:
+      mongodb:
+        condition: service_started
+      suwayomi:
+        condition: service_started
+    networks:
+      - aivideo-network
+
+  # ---------------------------------------------------------------------------
+  # 🌐 4. Frontend Web Studio (React + Vite + Nginx Reverse Proxy)
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: aivideo-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+      - suwayomi
+    networks:
+      - aivideo-network
+
+# -----------------------------------------------------------------------------
+# 💾 Persistent Volumes
+# -----------------------------------------------------------------------------
+volumes:
+  suwayomi_data:
+    name: aivideo_suwayomi_data
+  mongodb_data:
+    name: aivideo_mongodb_data
+  backend_storage:
+    name: aivideo_backend_storage
+
+# -----------------------------------------------------------------------------
+# 🔗 Isolated Network
+# -----------------------------------------------------------------------------
+networks:
+  aivideo-network:
+    name: aivideo-network
+    driver: bridge

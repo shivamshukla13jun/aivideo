@@ -140,7 +140,14 @@ export class VideoService {
           zoomFilter = `zoompan=z=1.1:x='min(x+1,iw-iw/zoom)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${width}x${height}:fps=${fps}`;
         }
 
-        const cmd = `ffmpeg -y -loop 1 -i "${scene.imageUrl}" -vf "scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,${zoomFilter},trim=duration=${duration}" -c:v libx264 -pix_fmt yuv420p "${segOutput}"`;
+        let resolvedImageUrl = scene.imageUrl;
+        if (scene.imageUrl.startsWith('/suwayomi/')) {
+          resolvedImageUrl = `${config.suwayomiUrl}${scene.imageUrl.replace(/^\/suwayomi/, '')}`;
+        } else if (scene.imageUrl.startsWith('/storage/uploads/')) {
+          resolvedImageUrl = path.join(this.uploadsDir, scene.imageUrl.replace(/^\/storage\/uploads\//, ''));
+        }
+
+        const cmd = `ffmpeg -y -loop 1 -i "${resolvedImageUrl}" -vf "scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,${zoomFilter},trim=duration=${duration}" -c:v libx264 -pix_fmt yuv420p "${segOutput}"`;
         await execAsync(cmd);
         segmentFiles.push(segOutput);
       }
@@ -150,8 +157,18 @@ export class VideoService {
       const concatContent = segmentFiles.map((f) => `file '${f.replace(/\\/g, '/')}'`).join('\n');
       fs.writeFileSync(concatListFile, concatContent);
 
-      // Final concat
-      await execAsync(`ffmpeg -y -f concat -safe 0 -i "${concatListFile}" -c copy "${outputPath}"`);
+      // Concat and mix audio if provided
+      if (options.audioUrl) {
+        let audioPath = options.audioUrl;
+        if (options.audioUrl.startsWith('/storage/uploads/')) {
+          audioPath = path.join(this.uploadsDir, options.audioUrl.replace(/^\/storage\/uploads\//, ''));
+        }
+        const videoTemp = path.join(tempDir, 'video_no_audio.mp4');
+        await execAsync(`ffmpeg -y -f concat -safe 0 -i "${concatListFile}" -c copy "${videoTemp}"`);
+        await execAsync(`ffmpeg -y -i "${videoTemp}" -i "${audioPath}" -c:v copy -c:a aac -shortest "${outputPath}"`);
+      } else {
+        await execAsync(`ffmpeg -y -f concat -safe 0 -i "${concatListFile}" -c copy "${outputPath}"`);
+      }
 
       // Cleanup temp
       fs.rmSync(tempDir, { recursive: true, force: true });
