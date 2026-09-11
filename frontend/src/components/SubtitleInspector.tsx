@@ -14,10 +14,34 @@ export const SubtitleInspector: React.FC<SubtitleInspectorProps> = ({ scene, onU
 
   const [isRecording, setIsRecording] = useState(false);
   const [recordDuration, setRecordDuration] = useState(0);
+  const [isGeneratingTts, setIsGeneratingTts] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
   const recordDurationRef = useRef<number>(0);
+
+  const handleGenerateAIVoice = async () => {
+    const text = (subtitles.map((s) => s.text).join(' ').trim()) || scene.narration || scene.title;
+    if (!text) {
+      alert('कृपया पहले सबटाइटल या नरेशन लिखें');
+      return;
+    }
+    try {
+      setIsGeneratingTts(true);
+      const updatedScene = await api.generateSceneVoice({
+        scene,
+        voice: 'hi-IN-MadhurNeural',
+        text,
+      });
+      if (updatedScene) {
+        onUpdateScene(updatedScene);
+      }
+    } catch (err: any) {
+      alert(`AI वॉइस जनरेशन विफल: ${err.message}`);
+    } finally {
+      setIsGeneratingTts(false);
+    }
+  };
 
   const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -343,27 +367,51 @@ export const SubtitleInspector: React.FC<SubtitleInspectorProps> = ({ scene, onU
           </label>
         </div>
 
-        {/* Record button */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {!isRecording ? (
-            <button
-              className="btn-secondary"
-              onClick={startRecording}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                fontSize: '12px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                borderColor: 'rgba(239, 68, 68, 0.4)',
-              }}
-            >
-              <Mic size={15} color="#f87171" />
-              <span>Record Voice Narration (Read Subtitles)</span>
-            </button>
-          ) : (
+        {/* AI Generate Voice Button & Record button */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <button
+            className="btn-secondary glow-hover"
+            onClick={handleGenerateAIVoice}
+            disabled={isGeneratingTts}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              fontSize: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              borderColor: 'rgba(6, 182, 212, 0.45)',
+              background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(139, 92, 246, 0.15))',
+              color: '#38bdf8',
+              fontWeight: 600,
+            }}
+            title="Madhur (हिंदी पुरुष) न्यूरल वॉइस से इस सीन का डायलॉग बोलें"
+          >
+            <Sparkles size={14} color="var(--primary-cyan)" className={isGeneratingTts ? 'animate-spin' : ''} />
+            <span>{isGeneratingTts ? 'न्यूरल वॉइस तैयार हो रही है... 🎙️' : '⚡ AI न्यूरल वॉइस बनाएं (Madhur Hindi)'}</span>
+          </button>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {!isRecording ? (
+              <button
+                className="btn-secondary"
+                onClick={startRecording}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  borderColor: 'rgba(239, 68, 68, 0.4)',
+                }}
+              >
+                <Mic size={15} color="#f87171" />
+                <span>अपनी आवाज़ में रिकॉर्ड करें (Mic)</span>
+              </button>
+            ) : (
             <button
               className="btn-secondary"
               onClick={stopRecording}
@@ -384,6 +432,7 @@ export const SubtitleInspector: React.FC<SubtitleInspectorProps> = ({ scene, onU
               <span>Stop Recording ({recordDuration}s)</span>
             </button>
           )}
+          </div>
         </div>
 
         {/* Live Teleprompter when Recording */}

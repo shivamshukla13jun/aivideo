@@ -7,12 +7,14 @@ import {
   CheckCircle2,
   AlertCircle,
   BookOpen,
+  Mic,
 } from 'lucide-react';
 
 interface NavbarProps {
   aspectRatio: '16:9' | '9:16' | '1:1';
   onAspectRatioChange: (ratio: '16:9' | '9:16' | '1:1') => void;
   onOpenAnimeLibrary: () => void;
+  onOpenVoiceover?: () => void;
   onOpenAIGenerator: () => void;
   onOpenExport: () => void;
   onOpenSettings: () => void;
@@ -22,6 +24,8 @@ interface NavbarProps {
     mongoConnected?: boolean;
     geminiConfigured: boolean;
     ffmpegAvailable: boolean;
+    aiProvider?: 'gemini' | 'ollama';
+    ollamaConnected?: boolean;
   };
 }
 
@@ -29,6 +33,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   aspectRatio,
   onAspectRatioChange,
   onOpenAnimeLibrary,
+  onOpenVoiceover,
   onOpenAIGenerator,
   onOpenExport,
   onOpenSettings,
@@ -109,10 +114,45 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Right Controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        {/* System & AI Status Badge */}
+        {/* AI Provider Indicator Badge (.env) */}
+        <button
+          onClick={onOpenSettings}
+          title="सिस्टम व AI स्थिति देखें (.env द्वारा कॉन्फ़िगर)"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontSize: '12px',
+            fontWeight: 600,
+            padding: '6px 12px',
+            borderRadius: '9999px',
+            background:
+              backendStatus.aiProvider === 'ollama'
+                ? 'rgba(16, 185, 129, 0.15)'
+                : 'rgba(6, 182, 212, 0.15)',
+            border: `1px solid ${
+              backendStatus.aiProvider === 'ollama'
+                ? 'rgba(16, 185, 129, 0.4)'
+                : 'rgba(6, 182, 212, 0.4)'
+            }`,
+            color: backendStatus.aiProvider === 'ollama' ? '#34d399' : '#38bdf8',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+          }}
+        >
+          <span>
+            {backendStatus.aiProvider === 'ollama'
+              ? backendStatus.ollamaConnected === false
+                ? '🦙 Ollama (ऑफलाइन)'
+                : '🦙 Ollama (.env)'
+              : '⚡ Gemini (.env)'}
+          </span>
+        </button>
+
+        {/* System Status Badge */}
         <div
           onClick={onOpenSettings}
-          title={isOnline ? 'AI Backend Connected' : 'Click to configure Gemini API Key'}
+          title="सिस्टम स्थिति विवरण देखें"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -127,14 +167,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           }}
         >
           {isOnline ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
-          <span>{isOnline ? 'AI Connected' : 'Set Gemini Key'}</span>
+          <span>{isOnline ? 'Backend Online' : 'Backend Offline'}</span>
         </div>
 
         {/* Settings button */}
         <button
           className="btn-icon"
           onClick={onOpenSettings}
-          title="API Key & Settings"
+          title="सिस्टम व पर्यावरण चर (.env) विवरण"
         >
           <Settings size={18} />
         </button>
@@ -155,6 +195,27 @@ export const Navbar: React.FC<NavbarProps> = ({
           <BookOpen size={16} color="var(--primary-cyan)" />
           <span>Anime Library</span>
         </button>
+
+        {/* AI Voiceover Generator */}
+        {onOpenVoiceover && (
+          <button
+            className="btn-secondary glow-hover"
+            onClick={onOpenVoiceover}
+            style={{
+              borderColor: 'rgba(139, 92, 246, 0.45)',
+              background: 'rgba(139, 92, 246, 0.12)',
+              color: '#c084fc',
+              fontWeight: 600,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+            title="न्यूरल आवाज़ या अपनी सैंपल आवाज़ से सभी सीन्स में वॉइसओवर जोड़ें"
+          >
+            <Mic size={16} color="#c084fc" />
+            <span>ऑटो वॉइसओवर</span>
+          </button>
+        )}
 
         {/* Generate with Gemini AI */}
         <button

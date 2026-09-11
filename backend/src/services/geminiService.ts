@@ -67,14 +67,10 @@ export class GeminiService {
     const key = (customKey || config.geminiApiKey || '').trim();
     if (!key) {
       throw new Error(
-        'Gemini API Key मौजूद नहीं है। कृपया ऐप की सेटिंग्स (⚙️) में या backend/.env में अपनी Google AI Studio API Key (AIzaSy...) दर्ज करें।'
+        'Gemini API Key मौजूद नहीं है। कृपया ऐप की सेटिंग्स (⚙️) में या backend/.env में अपनी Google AI Studio API Key (AQ....) दर्ज करें।'
       );
     }
-    if (key.startsWith('AQ.')) {
-      throw new Error(
-        'अमान्य Gemini API Key (Invalid Key): वर्तमान कुंजी "AQ." से शुरू हो रही है, जो एक आंतरिक टोकन है। Google Gemini API के लिए मान्य API Key "AIzaSy..." से शुरू होती है। कृपया https://aistudio.google.com/app/apikey से अपनी फ्री API Key बनाकर सेटिंग्स (⚙️) में पेस्ट करें।'
-      );
-    }
+   
     return new GoogleGenAI({ apiKey: key });
   }
 
@@ -83,7 +79,7 @@ export class GeminiService {
    */
   public handleGeminiError(error: any): never {
     const errorStr = typeof error === 'string' ? error : (error?.message || JSON.stringify(error));
-
+    console.log('Gemini API Error:', errorStr);
     if (
       error?.status === 401 ||
       errorStr.includes('401') ||
@@ -92,7 +88,7 @@ export class GeminiService {
       errorStr.includes('invalid authentication credentials')
     ) {
       throw new Error(
-        'अमान्य Gemini API Key (401 Unauthorized): प्रदान की गई कुंजी अमान्य है। Google Gemini API के लिए मान्य API Key "AIzaSy..." से शुरू होती है। कृपया https://aistudio.google.com/app/apikey पर जाकर एक नई फ्री API Key बनाएं और ऐप सेटिंग्स (⚙️) में सेव करें।'
+        'अमान्य Gemini API Key (401 Unauthorized): प्रदान की गई कुंजी अमान्य है। Google Gemini API के लिए मान्य API Key "AQ...." से शुरू होती है। कृपया https://aistudio.google.com/app/apikey पर जाकर एक नई फ्री API Key बनाएं और ऐप सेटिंग्स (⚙️) में सेव करें।'
       );
     }
 

@@ -127,17 +127,65 @@ const SceneRenderer: React.FC<{ scene: Scene }> = ({ scene }) => {
     }
   };
 
+  const crop = scene.imageCrop || {
+    fitMode: 'contain',
+    scale: 1,
+    positionX: 0,
+    positionY: 0,
+    rotate: 0,
+    backgroundBlur: true,
+    backgroundColor: '#000000',
+  };
+
+  const fitMode = crop.fitMode || 'contain';
+  const scale = crop.scale ?? 1;
+  const posX = crop.positionX ?? 0;
+  const posY = crop.positionY ?? 0;
+  const rotate = crop.rotate ?? 0;
+  const showBlur = crop.backgroundBlur !== false;
+  const bgColor = crop.backgroundColor || '#000000';
+
   return (
-    <AbsoluteFill style={{ overflow: 'hidden', backgroundColor: '#000' }}>
-      <Img
-        src={scene.imageUrl}
+    <AbsoluteFill style={{ overflow: 'hidden', backgroundColor: bgColor }}>
+      {/* Blurred background layer for aesthetic full image framing */}
+      {showBlur && (
+        <AbsoluteFill style={{ overflow: 'hidden', pointerEvents: 'none' }}>
+          <Img
+            src={scene.imageUrl}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              filter: 'blur(30px) brightness(0.4)',
+              transform: 'scale(1.3)',
+              transformOrigin: 'center center',
+            }}
+          />
+        </AbsoluteFill>
+      )}
+
+      {/* Main image with motion effect and free-size crop/pan transform */}
+      <AbsoluteFill
         style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
           ...getEffectStyle(),
         }}
-      />
+      >
+        <Img
+          src={scene.imageUrl}
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: fitMode === 'cover' ? 'cover' : 'contain',
+            transform: `translate(${posX}%, ${posY}%) scale(${scale}) rotate(${rotate}deg)`,
+            transformOrigin: 'center center',
+            filter: showBlur && fitMode !== 'cover' ? 'drop-shadow(0 12px 36px rgba(0,0,0,0.85))' : undefined,
+          }}
+        />
+      </AbsoluteFill>
     </AbsoluteFill>
   );
 };

@@ -8,7 +8,7 @@ interface AIGenerateModalProps {
   onClose: () => void;
   onGenerated: (scenes: Scene[], title: string, description: string) => void;
   aspectRatio: '16:9' | '9:16' | '1:1';
-  apiKey: string;
+  aiProvider?: 'gemini' | 'ollama';
 }
 
 const STYLES = [
@@ -30,7 +30,7 @@ export const AIGenerateModal: React.FC<AIGenerateModalProps> = ({
   onClose,
   onGenerated,
   aspectRatio,
-  apiKey,
+  aiProvider,
 }) => {
   const [tab, setTab] = useState<'prompt' | 'images'>('prompt');
   const [topic, setTopic] = useState('');
@@ -62,7 +62,6 @@ export const AIGenerateModal: React.FC<AIGenerateModalProps> = ({
         style,
         aspectRatio,
         model,
-        apiKey,
       });
 
       if (!response.success || !response.data) {
@@ -93,7 +92,7 @@ export const AIGenerateModal: React.FC<AIGenerateModalProps> = ({
       onClose();
     } catch (err: any) {
       console.error(err);
-      setError(err.response?.data?.error || err.message || 'Generation failed. Check your Gemini API Key.');
+      setError(err.response?.data?.error || err.message || 'Generation failed. Check .env configuration.');
     } finally {
       setLoading(false);
     }
@@ -114,7 +113,7 @@ export const AIGenerateModal: React.FC<AIGenerateModalProps> = ({
       formData.append('storyContext', storyContext || 'Visual slideshow');
       formData.append('model', model);
 
-      const response = await api.analyzeImages(formData, apiKey);
+      const response = await api.analyzeImages(formData);
 
       if (!response.success || !response.data) {
         throw new Error(response.error || 'Failed to analyze images');
@@ -205,7 +204,7 @@ export const AIGenerateModal: React.FC<AIGenerateModalProps> = ({
           </div>
           <div>
             <h2 style={{ fontSize: '20px', fontWeight: 700, margin: 0 }}>
-              Generate with <span className="grad-text">Gemini AI</span>
+              Generate with <span className="grad-text">{aiProvider === 'ollama' ? 'Ollama AI (Local)' : 'Gemini AI'}</span>
             </h2>
             <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
               AI-driven slideshow storyboard, synchronized subtitles & motion effects

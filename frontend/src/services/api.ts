@@ -9,10 +9,9 @@ export interface AISlideshowParams {
   style?: string;
   aspectRatio?: '16:9' | '9:16' | '1:1';
   model?: string;
-  apiKey?: string;
 }
 
-// Configure unlimited timeout globally for Gemini AI and heavy video processing
+// Configure unlimited timeout globally for AI operations and heavy video processing
 axios.defaults.timeout = 0;
 
 export const api = {
@@ -29,27 +28,54 @@ export const api = {
         mongoConnected: false,
         ffmpegAvailable: false,
         geminiConfigured: false,
+        aiProvider: 'gemini',
+        configuredInEnv: 'gemini',
+        ollamaConnected: false,
+        ollamaBaseUrl: 'http://127.0.0.1:11434',
+        ollamaModels: [],
+      };
+    }
+  },
+
+  async getAiProviderStatus() {
+    try {
+      const res = await axios.get(`${API_BASE}/ai-provider`, { timeout: 4000 });
+      return res.data;
+    } catch (err: any) {
+      return {
+        success: false,
+        activeProvider: 'gemini',
+        configuredInEnv: 'gemini',
+        gemini: { configured: false },
+        ollama: { connected: false, models: [] },
+      };
+    }
+  },
+
+  async getOllamaModels() {
+    try {
+      const res = await axios.get(`${API_BASE}/ollama/models`, { timeout: 4000 });
+      return res.data;
+    } catch (err: any) {
+      return {
+        success: false,
+        connected: false,
+        models: [],
+        error: err.message,
       };
     }
   },
 
   async generateSlideshow(params: AISlideshowParams) {
-    const headers: Record<string, string> = {};
-    if (params.apiKey) {
-      headers['x-gemini-key'] = params.apiKey;
-    }
-    const res = await axios.post(`${API_BASE}/ai-generate`, params, { headers, timeout: 0 });
+    const res = await axios.post(`${API_BASE}/ai-generate`, params, { timeout: 0 });
     return res.data;
   },
 
-  async analyzeImages(formData: FormData, apiKey?: string) {
-    const headers: Record<string, string> = {
-      'Content-Type': 'multipart/form-data',
-    };
-    if (apiKey) {
-      headers['x-gemini-key'] = apiKey;
-    }
-    const res = await axios.post(`${API_BASE}/analyze-images`, formData, { headers, timeout: 0 });
+  async analyzeImages(formData: FormData) {
+    const res = await axios.post(`${API_BASE}/analyze-images`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 0,
+    });
     return res.data;
   },
 
@@ -89,16 +115,13 @@ export const api = {
     chapterId?: string | number;
     chapterName: string;
     panels: Array<{ pageIndex: number; imageUrl: string }>;
-    apiKey?: string;
+    autoGenerateAudio?: boolean;
+    voice?: string;
+    sampleAudioUrl?: string;
   }) {
-    const headers: Record<string, string> = {};
-    if (params.apiKey) {
-      headers['x-gemini-key'] = params.apiKey;
-    }
-    const res = await axios.post(`${API_BASE}/generate-from-library`, params, { headers, timeout: 0 });
+    const res = await axios.post(`${API_BASE}/generate-from-library`, params, { timeout: 0 });
     return res.data;
   },
-
 
   /**
    * Real-Time Stream: Generate anime video subtitles with live progress updates
@@ -111,21 +134,15 @@ export const api = {
       chapterId?: string | number;
       chapterName: string;
       panels: Array<{ pageIndex: number; imageUrl: string }>;
-      apiKey?: string;
+      autoGenerateAudio?: boolean;
+      voice?: string;
+      sampleAudioUrl?: string;
     },
     onProgress: (progress: { step: string; message: string; percent: number }) => void
   ) {
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (params.apiKey) {
-      headers['x-gemini-key'] = params.apiKey;
-    }
-
     const response = await fetch(`${API_BASE}/generate-from-library-stream`, {
       method: 'POST',
-      headers,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
     });
 
@@ -236,7 +253,55 @@ export const api = {
       return null;
     }
   },
+
+  /**
+   * Get list of supported Neural Voices
+   */
+  async getTtsVoices() {
+    try {
+      const res = await axios.get(`${API_BASE}/tts/voices`);
+      return res.data?.voices || [];
+    } catch {
+      return [];
+    }
+  },
+
+  /**
+   * Upload User Voice Sample for Cloning
+   */
+  async uploadSampleAudio(file: File) {
+    const formData = new FormData();
+    formData.append('sampleAudio', file);
+    const res = await axios.post(`${API_BASE}/tts/upload-sample`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 0,
+    });
+    return res.data;
+  },
+
+  /**
+   * Generate Audio for a Single Scene
+   */
+  async generateSceneVoice(params: {
+    scene: any;
+    voice?: string;
+    sampleAudioUrl?: string;
+    text?: string;
+  }) {
+    const res = await axios.post(`${API_BASE}/tts/generate-scene`, params, { timeout: 0 });
+    return res.data?.scene;
+  },
+
+  /**
+   * Generate Audio for All Scenes (Batch)
+   */
+  async generateAllScenesVoice(params: {
+    scenes: any[];
+    voice?: string;
+    sampleAudioUrl?: string;
+    socketId?: string;
+  }) {
+    const res = await axios.post(`${API_BASE}/tts/generate-all`, params, { timeout: 0 });
+    return res.data;
+  },
 };
-
-
-

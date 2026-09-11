@@ -7,11 +7,14 @@ import mongoose from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config';
 import { geminiService } from '../services/geminiService';
+import { ollamaService } from '../services/ollamaService';
+import { aiProviderService } from '../services/aiProviderService';
 import { videoService } from '../services/videoService';
 import { characterMemoryService } from '../services/characterMemoryService';
 import { chapterCacheService } from '../services/chapterCacheService';
 import { ProjectModel } from '../db/models/ProjectModel';
 import { emitProgress } from '../socket';
+import { ttsService } from '../services/ttsService';
 
 const router = Router();
 
@@ -60,6 +63,9 @@ router.get('/status', async (req: Request, res: Response) => {
     // Live MongoDB connection check
     const mongoConnected = mongoose.connection.readyState === 1;
 
+    // Live AI Provider Status (Gemini + Ollama)
+    const providerStatus = await aiProviderService.getStatus();
+
     res.json({
       status: 'ok',
       backendApiUrl: '/api/video',
@@ -67,7 +73,14 @@ router.get('/status', async (req: Request, res: Response) => {
       suwayomiConnected,
       mongoConnected,
       ffmpegAvailable,
-      geminiConfigured: hasEnvKey,
+      geminiConfigured: providerStatus.gemini.configured,
+      aiProvider: providerStatus.activeProvider,
+      configuredInEnv: providerStatus.configuredInEnv,
+      ollamaConnected: providerStatus.ollama.connected,
+      ollamaBaseUrl: providerStatus.ollama.baseUrl,
+      ollamaModels: providerStatus.ollama.models,
+      ollamaDefaultModel: providerStatus.ollama.defaultModel,
+      ollamaVisionModel: providerStatus.ollama.visionModel,
       clientUrl: config.clientUrl,
       timestamp: new Date().toISOString(),
     });
@@ -77,32 +90,59 @@ router.get('/status', async (req: Request, res: Response) => {
 });
 
 /**
- * Generate Slideshow Storyboard using Gemini Pro AI
+ * AI Provider Status & Runtime Switching
+ */
+router.get('/ai-provider', async (req: Request, res: Response) => {
+  try {
+    const status = await aiProviderService.getStatus();
+    res.json({ success: true, ...status });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/ai-provider/switch', (req: Request, res: Response) => {
+  // Provider is strictly managed via server .env (AI_PROVIDER=gemini or AI_PROVIDER=ollama)
+  res.json({
+    success: false,
+    activeProvider: aiProviderService.getActiveProvider(),
+    configuredInEnv: config.aiProvider,
+    message: 'AI प्रोवाइडर केवल सर्वर की .env फ़ाइल (AI_PROVIDER=gemini या AI_PROVIDER=ollama) द्वारा प्रबंधित होता है।'
+  });
+});
+
+router.get('/ollama/models', async (req: Request, res: Response) => {
+  try {
+    const status = await ollamaService.checkConnection();
+    res.json({ success: true, ...status });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Generate Slideshow Storyboard using active AI provider from .env
  */
 router.post('/ai-generate', async (req: Request, res: Response) => {
   try {
-    const { topic, slideCount, style, aspectRatio, model, apiKey } = req.body;
+    const { topic, slideCount, style, aspectRatio, model } = req.body;
 
     if (!topic || typeof topic !== 'string') {
       return res.status(400).json({ error: 'Please provide a topic or concept for the video.' });
     }
 
-    // Support client passing key or fallback to env
-    const activeKey = apiKey || (req.headers['x-gemini-key'] as string) || config.geminiApiKey;
-
-    const result = await geminiService.generateSlideshow({
+    const result = await aiProviderService.generateSlideshow({
       topic,
       slideCount: Number(slideCount) || 5,
       style: style || 'Cinematic Documentary',
       aspectRatio: aspectRatio || '16:9',
-      model: model || 'gemini-3.6-flash',
-      apiKey: activeKey,
+      model,
     });
 
     res.json({ success: true, data: result });
   } catch (error: any) {
-    console.error('[Gemini AI Generate Error]', error);
-    res.status(500).json({ error: error.message || 'Gemini AI generation failed.' });
+    console.error('[AI Generate Error]', error);
+    res.status(500).json({ error: error.message || 'AI generation failed.' });
   }
 });
 
@@ -116,8 +156,7 @@ router.post('/analyze-images', upload.array('images', 20), async (req: Request, 
       return res.status(400).json({ error: 'No image files uploaded for analysis.' });
     }
 
-    const { storyContext, model, apiKey } = req.body;
-    const activeKey = apiKey || (req.headers['x-gemini-key'] as string) || config.geminiApiKey;
+    const { storyContext, model } = req.body;
 
     const imagePayload = files.map((file) => {
       const fileBuffer = fs.readFileSync(file.path);
@@ -128,11 +167,10 @@ router.post('/analyze-images', upload.array('images', 20), async (req: Request, 
       };
     });
 
-    const result = await geminiService.analyzeImagesForSlideshow({
+    const result = await aiProviderService.analyzeImagesForSlideshow({
       images: imagePayload,
       storyContext,
-      model: model || 'gemini-3.6-flash',
-      apiKey: activeKey,
+      model,
     });
 
     // Attach local uploaded file URLs
@@ -143,7 +181,7 @@ router.post('/analyze-images', upload.array('images', 20), async (req: Request, 
 
     res.json({ success: true, data: result });
   } catch (error: any) {
-    console.error('[Gemini Vision Analysis Error]', error);
+    console.error('[Vision Analysis Error]', error);
     res.status(500).json({ error: error.message || 'Image analysis failed.' });
   }
 });
@@ -297,6 +335,11 @@ async function processLibraryVideoGeneration(
     panels: Array<{ imageUrl: string; pageIndex?: number }>;
     apiKey?: string;
     model?: string;
+    aiProvider?: string;
+    autoGenerateAudio?: boolean;
+    voice?: string;
+    sampleAudioUrl?: string;
+    elevenLabsApiKey?: string;
   },
   onProgress?: (step: string, message: string, percent: number) => void
 ) {
@@ -308,7 +351,12 @@ async function processLibraryVideoGeneration(
     chapterName = 'Chapter',
     panels = [],
     apiKey,
-    model = 'gemini-3.6-flash',
+    model,
+    aiProvider,
+    autoGenerateAudio = false,
+    voice = 'hi-IN-MadhurNeural',
+    sampleAudioUrl,
+    elevenLabsApiKey,
   } = params;
 
   const notify = (
@@ -368,18 +416,20 @@ Analyze each panel sequentially. Understand speech bubbles, actions, facial expr
 Create engaging, situation-aware Hindi narration and dialogue subtitles tailored for a creator to read aloud while voice recording.
 Always remember past characters and generate exciting audience reminder hooks for any mysterious or returning characters!`;
 
-  // 3. Multimodal Gemini Vision analysis with Real-Time Response Streaming
-  notify('analyzing', '4/5: Gemini 3.6 Vision AI द्वारा हिंदी कहानी और सबटाइटल तैयार किए जा रहे हैं...', 60);
+  // 3. Multimodal Vision analysis with Real-Time Response Streaming (Gemini or Ollama strictly from .env)
+  const activeProvider = aiProviderService.getActiveProvider();
+  const providerLabel = activeProvider === 'ollama' ? 'Ollama AI (Local Vision)' : 'Gemini 3.6 Vision AI';
+
+  notify('analyzing', `4/5: ${providerLabel} द्वारा हिंदी कहानी और सबटाइटल तैयार किए जा रहे हैं...`, 60);
 
   let lastEmitTime = 0;
   let accumulatedStreamText = '';
 
-  const geminiResult = await geminiService.analyzeImagesForSlideshow({
+  const geminiResult = await aiProviderService.analyzeImagesForSlideshow({
     images: imagePayload,
     storyContext,
     characterMemoryPrompt: memoryPrompt,
     model,
-    apiKey,
     onChunk: (chunkText, totalLength) => {
       accumulatedStreamText += chunkText;
       const now = Date.now();
@@ -391,11 +441,12 @@ Always remember past characters and generate exciting audience reminder hooks fo
 
         notify(
           'gemini_streaming',
-          `4/5: Gemini AI लाइव लिख रहा है (${totalLength} अक्षर)...`,
+          `4/5: ${activeProvider === 'ollama' ? 'Ollama AI' : 'Gemini AI'} लाइव लिख रहा है (${totalLength} अक्षर)...`,
           dynamicPercent,
           {
             streamSnippet: recentSnippet,
             accumulatedLength: totalLength,
+            provider: activeProvider,
           }
         );
       }
@@ -458,7 +509,36 @@ Always remember past characters and generate exciting audience reminder hooks fo
       });
     }
 
-    notify('complete', 'सफलतापूर्वक सबटाइटल तैयार!', 100);
+    // 5.5 Optional: If autoGenerateAudio is requested, generate voice scene by scene
+    if (autoGenerateAudio) {
+      notify('audio_generating', '6/6: न्यूरल टेक्स्ट-टू-स्पीच से वॉइसओवर तैयार हो रहा है... 🎙️', 88);
+      let sampleAudioPath: string | undefined = undefined;
+      if (sampleAudioUrl && sampleAudioUrl.startsWith('/storage/uploads/')) {
+        sampleAudioPath = path.join(config.uploadsDir, sampleAudioUrl.replace(/^\/storage\/uploads\//, ''));
+      }
+
+      for (let i = 0; i < processedScenes.length; i++) {
+        const percent = Math.min(99, 88 + Math.floor(((i + 1) / processedScenes.length) * 11));
+        notify(
+          'audio_generating',
+          `वॉइसओवर तैयार हो रहा है: सीन ${i + 1}/${processedScenes.length}... 🎙️`,
+          percent,
+          { currentScene: i + 1, totalScenes: processedScenes.length }
+        );
+
+        try {
+          processedScenes[i] = await ttsService.generateVoiceForScene(processedScenes[i], {
+            voice: voice || 'hi-IN-MadhurNeural',
+            sampleAudioPath,
+            elevenLabsApiKey: config.elevenLabsApiKey,
+          });
+        } catch (audioErr: any) {
+          console.warn(`[TTS Warning] Failed generating voice for scene ${i + 1}:`, audioErr?.message || audioErr);
+        }
+      }
+    }
+
+    notify('complete', 'सफलतापूर्वक सबटाइटल व कहानी तैयार!', 100);
 
     const title = geminiResult.title || `${mangaTitle} - ${chapterName}`;
     const description =
@@ -522,7 +602,21 @@ router.post('/generate-from-library-stream', async (req: Request, res: Response)
   };
 
   try {
-    const { mangaId, mangaTitle, chapterId, chapterName, panels, apiKey, model, socketId } = req.body;
+    const {
+      mangaId,
+      mangaTitle,
+      chapterId,
+      chapterName,
+      panels,
+      apiKey,
+      model,
+      aiProvider,
+      socketId,
+      autoGenerateAudio,
+      voice,
+      sampleAudioUrl,
+      elevenLabsApiKey,
+    } = req.body;
 
     if (!panels || panels.length === 0) {
       sendEvent('error', { message: 'No anime panels provided for video generation.' });
@@ -541,6 +635,11 @@ router.post('/generate-from-library-stream', async (req: Request, res: Response)
         panels,
         apiKey: activeKey,
         model,
+        aiProvider,
+        autoGenerateAudio: Boolean(autoGenerateAudio),
+        voice,
+        sampleAudioUrl,
+        elevenLabsApiKey,
       },
       (step, message, percent) => {
         sendEvent('progress', { step, message, percent });
@@ -561,7 +660,21 @@ router.post('/generate-from-library-stream', async (req: Request, res: Response)
  */
 router.post('/generate-from-library', async (req: Request, res: Response) => {
   try {
-    const { mangaId, mangaTitle, chapterId, chapterName, panels, apiKey, model, socketId } = req.body;
+    const {
+      mangaId,
+      mangaTitle,
+      chapterId,
+      chapterName,
+      panels,
+      apiKey,
+      model,
+      aiProvider,
+      socketId,
+      autoGenerateAudio,
+      voice,
+      sampleAudioUrl,
+      elevenLabsApiKey,
+    } = req.body;
 
     if (!panels || panels.length === 0) {
       return res.status(400).json({ error: 'No anime panels provided for video generation.' });
@@ -578,6 +691,11 @@ router.post('/generate-from-library', async (req: Request, res: Response) => {
       panels,
       apiKey: activeKey,
       model,
+      aiProvider,
+      autoGenerateAudio: Boolean(autoGenerateAudio),
+      voice,
+      sampleAudioUrl,
+      elevenLabsApiKey,
     });
 
     res.json({ success: true, data });
@@ -719,6 +837,113 @@ router.get('/project/current', async (req: Request, res: Response) => {
     res.json({ success: true, project });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Get Available Neural Voices
+ */
+router.get('/tts/voices', (req: Request, res: Response) => {
+  res.json({ success: true, voices: ttsService.getVoices() });
+});
+
+/**
+ * Upload User Sample Audio for Voice Cloning or Reference
+ */
+router.post('/tts/upload-sample', upload.single('sampleAudio'), (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No sample audio file uploaded.' });
+    }
+    const sampleAudioUrl = `/storage/uploads/${req.file.filename}`;
+    res.json({
+      success: true,
+      sampleAudioUrl,
+      filename: req.file.filename,
+      originalName: req.file.originalname,
+      size: req.file.size,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Generate Voice for a Single Scene
+ */
+router.post('/tts/generate-scene', async (req: Request, res: Response) => {
+  try {
+    const { scene, voice, sampleAudioUrl, elevenLabsApiKey, text } = req.body;
+    if (!scene) {
+      return res.status(400).json({ error: 'Scene is required.' });
+    }
+
+    let sampleAudioPath: string | undefined = undefined;
+    if (sampleAudioUrl && sampleAudioUrl.startsWith('/storage/uploads/')) {
+      sampleAudioPath = path.join(config.uploadsDir, sampleAudioUrl.replace(/^\/storage\/uploads\//, ''));
+    }
+
+    const updatedScene = await ttsService.generateVoiceForScene(scene, {
+      voice,
+      sampleAudioPath,
+      elevenLabsApiKey: config.elevenLabsApiKey,
+      text,
+    });
+
+    res.json({ success: true, scene: updatedScene });
+  } catch (error: any) {
+    console.error('[TTS Generate Scene Error]', error);
+    res.status(500).json({ error: error.message || 'Failed to generate voice for scene.' });
+  }
+});
+
+/**
+ * Generate Voice for All Scenes (Batch) with Real-Time Progress & Auto-Save
+ */
+router.post('/tts/generate-all', async (req: Request, res: Response) => {
+  try {
+    const { scenes, voice, sampleAudioUrl, elevenLabsApiKey, socketId } = req.body;
+    if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
+      return res.status(400).json({ error: 'Scenes array is required.' });
+    }
+
+    let sampleAudioPath: string | undefined = undefined;
+    if (sampleAudioUrl && sampleAudioUrl.startsWith('/storage/uploads/')) {
+      sampleAudioPath = path.join(config.uploadsDir, sampleAudioUrl.replace(/^\/storage\/uploads\//, ''));
+    }
+
+    const updatedScenes = await ttsService.generateVoiceForAllScenes(
+      scenes,
+      { voice, sampleAudioPath, elevenLabsApiKey: config.elevenLabsApiKey },
+      (progress) => {
+        emitProgress(socketId, {
+          step: 'tts_progress',
+          message: progress.message,
+          percent: Math.round((progress.current / progress.total) * 100),
+          current: progress.current,
+          total: progress.total,
+        });
+      }
+    );
+
+    // Calculate updated total duration
+    const totalDuration = updatedScenes.reduce((sum: number, s: any) => sum + (Number(s.duration) || 0), 0);
+
+    // Auto-save updated scenes into MongoDB ProjectModel
+    try {
+      await ProjectModel.findOneAndUpdate(
+        { projectId: 'current' },
+        { scenes: updatedScenes, totalDuration },
+        { upsert: true, new: true }
+      );
+    } catch (saveErr) {
+      console.warn('[TTS Auto-Save Warning]', saveErr);
+    }
+
+    res.json({ success: true, scenes: updatedScenes, totalDuration });
+  } catch (error: any) {
+    console.error('[TTS Generate All Error]', error);
+    res.status(500).json({ error: error.message || 'Failed to generate voices for scenes.' });
   }
 });
 

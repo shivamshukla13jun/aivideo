@@ -77,13 +77,78 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, proje
         })
       );
 
-      // Step 2: Setup MediaRecorder
-      const stream = canvas.captureStream(fps);
+      // Step 2: Setup MediaRecorder & Web Audio mixing
+      const canvasStream = canvas.captureStream(fps);
       const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
         ? 'video/webm;codecs=vp9'
         : 'video/webm';
 
-      const recorder = new MediaRecorder(stream, {
+      const hasAudio = project.scenes.some((s) => s.audioClips && s.audioClips.length > 0) || Boolean(project.bgMusicUrl);
+      let audioCtx: AudioContext | null = null;
+      let audioDest: MediaStreamAudioDestinationNode | null = null;
+      let combinedStream = canvasStream;
+
+      if (hasAudio && typeof AudioContext !== 'undefined') {
+        try {
+          setProgressText('ऑडियो ट्रैक्स व वॉइसओवर मिक्स किए जा रहे हैं...');
+          audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+          audioDest = audioCtx.createMediaStreamDestination();
+
+          // Pre-fetch and schedule all scene audio clips and bgMusic
+          let sceneOffset = 0;
+          for (const s of project.scenes) {
+            if (s.audioClips && s.audioClips.length > 0) {
+              for (const clip of s.audioClips) {
+                try {
+                  const resp = await fetch(clip.url);
+                  const arrayBuffer = await resp.arrayBuffer();
+                  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+                  const source = audioCtx.createBufferSource();
+                  source.buffer = audioBuffer;
+                  const gainNode = audioCtx.createGain();
+                  gainNode.gain.value = clip.volume ?? 1.0;
+                  source.connect(gainNode);
+                  gainNode.connect(audioDest);
+                  const startDelay = Math.max(0, sceneOffset + (clip.startTime || 0));
+                  source.start(audioCtx.currentTime + startDelay);
+                } catch (audioLoadErr) {
+                  console.warn('Could not load audio clip for export:', clip.name, audioLoadErr);
+                }
+              }
+            }
+            sceneOffset += s.duration;
+          }
+
+          if (project.bgMusicUrl) {
+            try {
+              const bgResp = await fetch(project.bgMusicUrl);
+              const bgArr = await bgResp.arrayBuffer();
+              const bgBuffer = await audioCtx.decodeAudioData(bgArr);
+              const bgSource = audioCtx.createBufferSource();
+              bgSource.buffer = bgBuffer;
+              const bgGain = audioCtx.createGain();
+              bgGain.gain.value = 0.5;
+              bgSource.connect(bgGain);
+              bgGain.connect(audioDest);
+              bgSource.start(audioCtx.currentTime);
+            } catch (bgErr) {
+              console.warn('Could not load bg music for export:', bgErr);
+            }
+          }
+
+          const audioTracks = audioDest.stream.getAudioTracks();
+          if (audioTracks.length > 0) {
+            combinedStream = new MediaStream([
+              ...combinedStream.getVideoTracks(),
+              ...audioTracks,
+            ]);
+          }
+        } catch (audioInitErr) {
+          console.warn('Web Audio initialization error:', audioInitErr);
+        }
+      }
+
+      const recorder = new MediaRecorder(combinedStream, {
         mimeType,
         videoBitsPerSecond: resolution === '1080p' ? 8000000 : 4000000,
       });
@@ -117,9 +182,40 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, proje
           const progressInScene = f / sceneFrames;
           const currentTimeInScene = f / fps;
 
-          // Clear
-          ctx.fillStyle = '#000000';
+          // Crop & Free-size settings for this scene
+          const crop = scene.imageCrop || {
+            fitMode: 'contain',
+            scale: 1,
+            positionX: 0,
+            positionY: 0,
+            rotate: 0,
+            backgroundBlur: true,
+            backgroundColor: '#000000',
+          };
+          const fitMode = crop.fitMode || 'contain';
+          const userScale = crop.scale ?? 1;
+          const posX = crop.positionX ?? 0;
+          const posY = crop.positionY ?? 0;
+          const rotateDeg = crop.rotate ?? 0;
+          const showBlur = crop.backgroundBlur !== false;
+          const bgColor = crop.backgroundColor || '#000000';
+
+          // Clear with background color
+          ctx.fillStyle = bgColor;
           ctx.fillRect(0, 0, width, height);
+
+          // Blurred background for aesthetic full image framing
+          if (showBlur) {
+            ctx.save();
+            ctx.filter = 'blur(28px) brightness(45%)';
+            const bgHRatio = width / img.width;
+            const bgVRatio = height / img.height;
+            const bgRatio = Math.max(bgHRatio, bgVRatio) * 1.3;
+            const bgShiftX = (width - img.width * bgRatio) / 2;
+            const bgShiftY = (height - img.height * bgRatio) / 2;
+            ctx.drawImage(img, bgShiftX, bgShiftY, img.width * bgRatio, img.height * bgRatio);
+            ctx.restore();
+          }
 
           // Calculate Ken Burns / Motion transform
           ctx.save();
@@ -161,12 +257,23 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, proje
           ctx.scale(scale, scale);
           ctx.translate(-width / 2, -height / 2);
 
-          // Draw Image with aspect fill
+          // Calculate Image placement based on fitMode (cover vs contain) and user's free size crop
           const hRatio = width / img.width;
           const vRatio = height / img.height;
-          const ratio = Math.max(hRatio, vRatio);
-          const centerShiftX = (width - img.width * ratio) / 2;
-          const centerShiftY = (height - img.height * ratio) / 2;
+          const baseRatio = fitMode === 'cover' ? Math.max(hRatio, vRatio) : Math.min(hRatio, vRatio);
+          const finalRatio = baseRatio * userScale;
+
+          const centerShiftX = (width - img.width * finalRatio) / 2;
+          const centerShiftY = (height - img.height * finalRatio) / 2;
+          const userOffsetX = (posX / 100) * width;
+          const userOffsetY = (posY / 100) * height;
+
+          ctx.save();
+          if (rotateDeg !== 0) {
+            ctx.translate(width / 2, height / 2);
+            ctx.rotate((rotateDeg * Math.PI) / 180);
+            ctx.translate(-width / 2, -height / 2);
+          }
 
           ctx.drawImage(
             img,
@@ -174,11 +281,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, proje
             0,
             img.width,
             img.height,
-            centerShiftX,
-            centerShiftY,
-            img.width * ratio,
-            img.height * ratio
+            centerShiftX + userOffsetX,
+            centerShiftY + userOffsetY,
+            img.width * finalRatio,
+            img.height * finalRatio
           );
+          ctx.restore();
           ctx.restore();
 
           // Subtitles
@@ -225,13 +333,23 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, proje
           }
 
           renderedFrames++;
-          if (renderedFrames % 10 === 0) {
-            setProgress(Math.round((renderedFrames / totalFrames) * 100));
-            setProgressText(
-              `Rendering Scene ${sIdx + 1}/${project.scenes.length} (Frame ${renderedFrames}/${totalFrames})...`
-            );
-            // Allow browser event loop tick
-            await new Promise((r) => setTimeout(r, 4));
+          if (hasAudio) {
+            // Keep frame rendering paced with real-time audio playback
+            await new Promise((r) => setTimeout(r, Math.max(1, Math.round(1000 / fps))));
+            if (renderedFrames % 15 === 0) {
+              setProgress(Math.round((renderedFrames / totalFrames) * 100));
+              setProgressText(
+                `एक्सपोर्ट हो रहा है: सीन ${sIdx + 1}/${project.scenes.length} (ऑडियो सिंक: ${Math.round(renderedFrames / fps)}s / ${Math.round(project.totalDuration)}s)...`
+              );
+            }
+          } else {
+            if (renderedFrames % 10 === 0) {
+              setProgress(Math.round((renderedFrames / totalFrames) * 100));
+              setProgressText(
+                `Rendering Scene ${sIdx + 1}/${project.scenes.length} (Frame ${renderedFrames}/${totalFrames})...`
+              );
+              await new Promise((r) => setTimeout(r, 4));
+            }
           }
         }
       }
@@ -239,6 +357,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, proje
       setProgress(98);
       setProgressText('Finalizing video file...');
       recorder.stop();
+      if (audioCtx) {
+        audioCtx.close().catch(() => {});
+      }
       const videoBlob = await recordPromise;
 
       const url = URL.createObjectURL(videoBlob);

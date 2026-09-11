@@ -20,8 +20,10 @@ import { AIGenerateModal } from './components/AIGenerateModal';
 import { ExportModal } from './components/ExportModal';
 import { SettingsModal } from './components/SettingsModal';
 import { AnimeLibraryModal } from './components/AnimeLibraryModal';
+import { SlideCropModal } from './components/SlideCropModal';
+import { VoiceoverModal } from './components/VoiceoverModal';
 import { RemotionComposition } from './components/videoEditor/RemotionComposition';
-import { Scene, VideoProject, ASPECT_RATIOS, DEFAULT_SUBTITLE_STYLE } from './types/video';
+import { Scene, VideoProject, ASPECT_RATIOS, DEFAULT_SUBTITLE_STYLE, ImageCropSettings, DEFAULT_IMAGE_CROP } from './types/video';
 import { api } from './services/api';
 
 const DEFAULT_SCENES: Scene[] = [
@@ -109,14 +111,32 @@ export default function App() {
   const [isAIGeneratorOpen, setIsAIGeneratorOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isCropModalOpen, setIsCropModalOpen] = useState(false);
+  const [isVoiceoverModalOpen, setIsVoiceoverModalOpen] = useState(false);
+  const [activeInspectorTab, setActiveInspectorTab] = useState<'subtitles' | 'crop'>('subtitles');
   const [bgMusicUrl, setBgMusicUrl] = useState<string>('');
 
-  // API Key & Backend status
-  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('gemini_api_key') || '');
-  const [backendStatus, setBackendStatus] = useState({
+  // Backend & AI Environment status (.env)
+  const [backendStatus, setBackendStatus] = useState<{
+    status: string;
+    geminiConfigured: boolean;
+    ffmpegAvailable: boolean;
+    suwayomiConnected?: boolean;
+    mongoConnected?: boolean;
+    aiProvider?: 'gemini' | 'ollama';
+    configuredInEnv?: string;
+    ollamaConnected?: boolean;
+    ollamaBaseUrl?: string;
+    ollamaModels?: string[];
+    ollamaDefaultModel?: string;
+    ollamaVisionModel?: string;
+  }>({
     status: 'checking',
     geminiConfigured: false,
     ffmpegAvailable: false,
+    aiProvider: 'gemini',
+    configuredInEnv: 'gemini',
+    ollamaConnected: false,
   });
 
   const fps = 30;
@@ -189,11 +209,6 @@ export default function App() {
     return () => cancelAnimationFrame(animId);
   }, []);
 
-  // Save API key
-  const handleSaveApiKey = (newKey: string) => {
-    setApiKey(newKey);
-    localStorage.setItem('gemini_api_key', newKey);
-  };
 
   // Play / Pause toggle
   const togglePlay = () => {
@@ -269,11 +284,20 @@ export default function App() {
 
   const handleMoveSlide = (fromIndex: number, toIndex: number) => {
     if (toIndex < 0 || toIndex >= scenes.length) return;
-    const next = [...scenes];
-    const [moved] = next.splice(fromIndex, 1);
-    next.splice(toIndex, 0, moved);
-    setScenes(next);
+    const updated = [...scenes];
+    const [moved] = updated.splice(fromIndex, 1);
+    updated.splice(toIndex, 0, moved);
+    setScenes(updated);
     setSelectedSceneIndex(toIndex);
+  };
+
+  const handleApplyCropToAllScenes = (cropSettings: ImageCropSettings) => {
+    setScenes((prev) =>
+      prev.map((s) => ({
+        ...s,
+        imageCrop: { ...cropSettings },
+      }))
+    );
   };
 
   // AI Generated callback
@@ -313,6 +337,7 @@ export default function App() {
         aspectRatio={aspectRatio}
         onAspectRatioChange={setAspectRatio}
         onOpenAnimeLibrary={() => setIsAnimeLibraryOpen(true)}
+        onOpenVoiceover={() => setIsVoiceoverModalOpen(true)}
         onOpenAIGenerator={() => setIsAIGeneratorOpen(true)}
         onOpenExport={() => setIsExportOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
@@ -465,6 +490,7 @@ export default function App() {
               onDuplicateSlide={handleDuplicateSlide}
               onMoveSlide={handleMoveSlide}
               onOpenAnimeLibrary={() => setIsAnimeLibraryOpen(true)}
+              onOpenCropModal={() => setIsCropModalOpen(true)}
             />
           </div>
         </div>
@@ -514,12 +540,283 @@ export default function App() {
             />
           </div>
 
+          {/* Tabs: Subtitles vs Image Sizing & Crop */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+            <button
+              type="button"
+              onClick={() => setActiveInspectorTab('subtitles')}
+              style={{
+                padding: '8px 10px',
+                borderRadius: '8px',
+                border: activeInspectorTab === 'subtitles' ? '1px solid var(--primary-cyan)' : '1px solid var(--border-color)',
+                background: activeInspectorTab === 'subtitles' ? 'rgba(6, 182, 212, 0.15)' : 'rgba(0, 0, 0, 0.3)',
+                color: activeInspectorTab === 'subtitles' ? '#ffffff' : 'var(--text-secondary)',
+                fontWeight: 600,
+                fontSize: '12px',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >
+              📝 सबटाइटल्स
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveInspectorTab('crop')}
+              style={{
+                padding: '8px 10px',
+                borderRadius: '8px',
+                border: activeInspectorTab === 'crop' ? '1px solid var(--primary-cyan)' : '1px solid var(--border-color)',
+                background: activeInspectorTab === 'crop' ? 'rgba(6, 182, 212, 0.15)' : 'rgba(0, 0, 0, 0.3)',
+                color: activeInspectorTab === 'crop' ? '#ffffff' : 'var(--text-secondary)',
+                fontWeight: 600,
+                fontSize: '12px',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >
+              🖼️ इमेज साइज़ व क्रॉप
+            </button>
+          </div>
+
           {/* Subtitle & Narration Inspector for Selected Scene */}
-          {scenes[selectedSceneIndex] && (
+          {activeInspectorTab === 'subtitles' && scenes[selectedSceneIndex] && (
             <SubtitleInspector
               scene={scenes[selectedSceneIndex]}
               onUpdateScene={(updated) => handleUpdateScene(selectedSceneIndex, updated)}
             />
+          )}
+
+          {/* Image Sizing & Free Crop Quick Inspector Panel */}
+          {activeInspectorTab === 'crop' && scenes[selectedSceneIndex] && (
+            <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Sliders size={18} color="var(--primary-cyan)" />
+                  <h3 style={{ fontSize: '15px', fontWeight: 600, margin: 0 }}>
+                    स्लाइड #{selectedSceneIndex + 1} इमेज साइज़
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setIsCropModalOpen(true)}
+                  style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--primary-cyan)' }}
+                  title="बड़ा विजुअल ड्रैग कैनवस खोलें"
+                >
+                  🔍 बड़ा एडिटर
+                </button>
+              </div>
+
+              {/* Fit Mode Selector */}
+              <div>
+                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                  डिस्प्ले मोड:
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                  {[
+                    { mode: 'contain', label: 'पूरी इमेज' },
+                    { mode: 'cover', label: 'स्क्रीन भरें' },
+                    { mode: 'custom', label: 'फ्री-साइज़' },
+                  ].map((item) => {
+                    const currentMode = scenes[selectedSceneIndex].imageCrop?.fitMode || 'contain';
+                    const isSelected = currentMode === item.mode;
+                    return (
+                      <button
+                        key={item.mode}
+                        type="button"
+                        onClick={() => {
+                          const updatedCrop: ImageCropSettings = {
+                            ...(scenes[selectedSceneIndex].imageCrop || DEFAULT_IMAGE_CROP),
+                            fitMode: item.mode as any,
+                          };
+                          handleUpdateScene(selectedSceneIndex, { imageCrop: updatedCrop });
+                        }}
+                        style={{
+                          padding: '6px 4px',
+                          borderRadius: '8px',
+                          border: isSelected ? '1px solid var(--primary-cyan)' : '1px solid var(--border-color)',
+                          background: isSelected ? 'rgba(6, 182, 212, 0.15)' : 'rgba(0, 0, 0, 0.3)',
+                          color: isSelected ? '#ffffff' : 'var(--text-secondary)',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Quick Scale Slider */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>ज़ूम / स्केल:</span>
+                  <span style={{ fontSize: '11px', color: 'var(--primary-cyan)', fontWeight: 700, fontFamily: 'monospace' }}>
+                    {Math.round((scenes[selectedSceneIndex].imageCrop?.scale ?? 1.0) * 100)}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="3.0"
+                  step="0.05"
+                  value={scenes[selectedSceneIndex].imageCrop?.scale ?? 1.0}
+                  onChange={(e) => {
+                    const s = parseFloat(e.target.value);
+                    const updatedCrop: ImageCropSettings = {
+                      ...(scenes[selectedSceneIndex].imageCrop || DEFAULT_IMAGE_CROP),
+                      scale: s,
+                      fitMode: 'custom',
+                    };
+                    handleUpdateScene(selectedSceneIndex, { imageCrop: updatedCrop });
+                  }}
+                  style={{ width: '100%', accentColor: 'var(--primary-cyan)' }}
+                />
+              </div>
+
+              {/* Quick Pan X & Y */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>पैन X (बाएं/दाएं):</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      {scenes[selectedSceneIndex].imageCrop?.positionX ?? 0}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="-100"
+                    max="100"
+                    step="1"
+                    value={scenes[selectedSceneIndex].imageCrop?.positionX ?? 0}
+                    onChange={(e) => {
+                      const px = parseInt(e.target.value, 10);
+                      const updatedCrop: ImageCropSettings = {
+                        ...(scenes[selectedSceneIndex].imageCrop || DEFAULT_IMAGE_CROP),
+                        positionX: px,
+                        fitMode: 'custom',
+                      };
+                      handleUpdateScene(selectedSceneIndex, { imageCrop: updatedCrop });
+                    }}
+                    style={{ width: '100%', accentColor: 'var(--primary-cyan)' }}
+                  />
+                </div>
+
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>पैन Y (ऊपर/नीचे):</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      {scenes[selectedSceneIndex].imageCrop?.positionY ?? 0}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="-100"
+                    max="100"
+                    step="1"
+                    value={scenes[selectedSceneIndex].imageCrop?.positionY ?? 0}
+                    onChange={(e) => {
+                      const py = parseInt(e.target.value, 10);
+                      const updatedCrop: ImageCropSettings = {
+                        ...(scenes[selectedSceneIndex].imageCrop || DEFAULT_IMAGE_CROP),
+                        positionY: py,
+                        fitMode: 'custom',
+                      };
+                      handleUpdateScene(selectedSceneIndex, { imageCrop: updatedCrop });
+                    }}
+                    style={{ width: '100%', accentColor: 'var(--primary-cyan)' }}
+                  />
+                </div>
+              </div>
+
+              {/* Quick Focus Buttons */}
+              <div>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                  मंगा पैनल त्वरित फोकस:
+                </span>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      const updatedCrop: ImageCropSettings = {
+                        ...(scenes[selectedSceneIndex].imageCrop || DEFAULT_IMAGE_CROP),
+                        positionY: 25,
+                        scale: 1.4,
+                        fitMode: 'custom',
+                      };
+                      handleUpdateScene(selectedSceneIndex, { imageCrop: updatedCrop });
+                    }}
+                    style={{ flex: 1, padding: '4px', fontSize: '10px' }}
+                  >
+                    ⬆️ टॉप पैनल
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      const updatedCrop: ImageCropSettings = {
+                        ...(scenes[selectedSceneIndex].imageCrop || DEFAULT_IMAGE_CROP),
+                        positionX: 0,
+                        positionY: 0,
+                        scale: 1.0,
+                        fitMode: 'contain',
+                      };
+                      handleUpdateScene(selectedSceneIndex, { imageCrop: updatedCrop });
+                    }}
+                    style={{ flex: 1, padding: '4px', fontSize: '10px' }}
+                  >
+                    ⏺️ सेंटर
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      const updatedCrop: ImageCropSettings = {
+                        ...(scenes[selectedSceneIndex].imageCrop || DEFAULT_IMAGE_CROP),
+                        positionY: -25,
+                        scale: 1.4,
+                        fitMode: 'custom',
+                      };
+                      handleUpdateScene(selectedSceneIndex, { imageCrop: updatedCrop });
+                    }}
+                    style={{ flex: 1, padding: '4px', fontSize: '10px' }}
+                  >
+                    ⬇️ बॉटम पैनल
+                  </button>
+                </div>
+              </div>
+
+              {/* Aesthetic Blur Background Toggle */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '4px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>ब्लर बैकग्राउंड (Blurred Canvas):</span>
+                <input
+                  type="checkbox"
+                  checked={scenes[selectedSceneIndex].imageCrop?.backgroundBlur !== false}
+                  onChange={(e) => {
+                    const updatedCrop: ImageCropSettings = {
+                      ...(scenes[selectedSceneIndex].imageCrop || DEFAULT_IMAGE_CROP),
+                      backgroundBlur: e.target.checked,
+                    };
+                    handleUpdateScene(selectedSceneIndex, { imageCrop: updatedCrop });
+                  }}
+                  style={{ width: '16px', height: '16px', accentColor: 'var(--primary-cyan)', cursor: 'pointer' }}
+                />
+              </div>
+
+              {/* Button to open full visual drag editor */}
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => setIsCropModalOpen(true)}
+                style={{ padding: '8px', fontSize: '12px', marginTop: '4px' }}
+              >
+                <Sliders size={14} />
+                <span>लाइव विजुअल ड्रैग व फ्री-साइज़ एडिटर</span>
+              </button>
+            </div>
           )}
         </div>
       </main>
@@ -530,7 +827,7 @@ export default function App() {
         onClose={() => setIsAIGeneratorOpen(false)}
         onGenerated={handleAIGenerated}
         aspectRatio={aspectRatio}
-        apiKey={apiKey}
+        aiProvider={backendStatus.aiProvider}
       />
 
       <ExportModal
@@ -554,16 +851,37 @@ export default function App() {
         isOpen={isAnimeLibraryOpen}
         onClose={() => setIsAnimeLibraryOpen(false)}
         onImportScenes={handleImportAnimeScenes}
-        apiKey={apiKey}
         backendStatus={backendStatus}
       />
 
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
-        apiKey={apiKey}
-        onSaveApiKey={handleSaveApiKey}
         backendStatus={backendStatus}
+      />
+
+      {/* Slide Image Crop & Free Size Modal */}
+      {scenes[selectedSceneIndex] && (
+        <SlideCropModal
+          isOpen={isCropModalOpen}
+          onClose={() => setIsCropModalOpen(false)}
+          scene={scenes[selectedSceneIndex]}
+          sceneIndex={selectedSceneIndex}
+          totalScenes={scenes.length}
+          aspectRatio={aspectRatio}
+          onUpdateScene={(updated) => handleUpdateScene(selectedSceneIndex, updated)}
+          onApplyToAllScenes={handleApplyCropToAllScenes}
+        />
+      )}
+
+      {/* Auto Voiceover & Neural TTS Modal */}
+      <VoiceoverModal
+        isOpen={isVoiceoverModalOpen}
+        onClose={() => setIsVoiceoverModalOpen(false)}
+        scenes={scenes}
+        selectedSceneIndex={selectedSceneIndex}
+        onUpdateScenes={(updated) => setScenes(updated)}
+        onUpdateSingleScene={handleUpdateScene}
       />
     </div>
   );

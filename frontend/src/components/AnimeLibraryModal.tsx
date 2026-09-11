@@ -35,7 +35,6 @@ interface AnimeLibraryModalProps {
     projectDesc: string,
     globalAudioUrl?: string
   ) => void;
-  apiKey?: string;
   backendStatus?: any;
 }
 
@@ -43,7 +42,6 @@ export const AnimeLibraryModal: React.FC<AnimeLibraryModalProps> = ({
   isOpen,
   onClose,
   onImportScenes,
-  apiKey,
   backendStatus,
 }) => {
   // Navigation step: 1 = Library, 2 = Chapters, 3 = Panels & Audio
@@ -78,6 +76,28 @@ export const AnimeLibraryModal: React.FC<AnimeLibraryModalProps> = ({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
+
+  // Auto Voiceover configuration
+  const [autoGenerateVoiceover, setAutoGenerateVoiceover] = useState<boolean>(false);
+  const [ttsVoice, setTtsVoice] = useState<string>('hi-IN-MadhurNeural');
+  const [sampleVoiceUrl, setSampleVoiceUrl] = useState<string>('');
+  const [sampleVoiceName, setSampleVoiceName] = useState<string>('');
+  const [isUploadingSampleVoice, setIsUploadingSampleVoice] = useState<boolean>(false);
+
+  const handleSampleVoiceUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setIsUploadingSampleVoice(true);
+      const res = await api.uploadSampleAudio(file);
+      setSampleVoiceUrl(res.url);
+      setSampleVoiceName(res.fileName || file.name);
+    } catch (err: any) {
+      alert(`सैंपल ऑडियो अपलोड विफल: ${err.message}`);
+    } finally {
+      setIsUploadingSampleVoice(false);
+    }
+  };
 
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [generatingStatusText, setGeneratingStatusText] = useState('');
@@ -405,8 +425,6 @@ export const AnimeLibraryModal: React.FC<AnimeLibraryModalProps> = ({
         imageUrl: panelPages[idx],
       }));
 
-      const activeKey = apiKey || localStorage.getItem('gemini_api_key') || '';
-
       const result = await api.generateAnimeVideo({
         socketId: currentSocketId,
         mangaId: String(selectedManga.id),
@@ -414,7 +432,9 @@ export const AnimeLibraryModal: React.FC<AnimeLibraryModalProps> = ({
         chapterId: String(selectedChapter.id),
         chapterName: selectedChapter.name || `Chapter ${selectedChapter.chapterNumber}`,
         panels: panelsPayload,
-        apiKey: activeKey,
+        autoGenerateAudio: autoGenerateVoiceover,
+        voice: ttsVoice,
+        sampleAudioUrl: sampleVoiceUrl || undefined,
       });
 
       if (result.success && result.data?.scenes) {
@@ -1379,7 +1399,15 @@ export const AnimeLibraryModal: React.FC<AnimeLibraryModalProps> = ({
                   }}
                 >
                   <Sparkles size={15} color="var(--primary-cyan)" />
-                  <span>{isGeneratingVideo ? 'Generating Subtitles...' : cachedChapterData ? '🔄 Re-generate (Gemini AI)' : '⚡ Generate Subtitles & Story (Gemini AI)'}</span>
+                  <span>
+                    {isGeneratingVideo
+                      ? 'Generating Subtitles...'
+                      : cachedChapterData
+                      ? `🔄 Re-generate (${backendStatus?.aiProvider === 'ollama' ? 'Ollama AI' : 'Gemini AI'})`
+                      : backendStatus?.aiProvider === 'ollama'
+                      ? '🦙 Generate Subtitles & Story (Ollama AI)'
+                      : '⚡ Generate Subtitles & Story (Gemini AI)'}
+                  </span>
                 </button>
               </div>
 
@@ -1554,6 +1582,203 @@ export const AnimeLibraryModal: React.FC<AnimeLibraryModalProps> = ({
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* AUTO VOICEOVER (TEXT-TO-SPEECH) SECTION - OPTIONAL */}
+              <div
+                style={{
+                  background: autoGenerateVoiceover
+                    ? 'linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(139, 92, 246, 0.15))'
+                    : 'rgba(15, 23, 42, 0.55)',
+                  border: autoGenerateVoiceover
+                    ? '1px solid rgba(6, 182, 212, 0.45)'
+                    : '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: '12px',
+                  padding: '16px 20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '14px',
+                  transition: 'all 0.25s ease',
+                  boxShadow: autoGenerateVoiceover ? '0 0 24px rgba(6, 182, 212, 0.15)' : 'none',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div
+                      style={{
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '10px',
+                        background: autoGenerateVoiceover ? 'var(--grad-cyan-violet)' : 'rgba(255, 255, 255, 0.08)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#fff',
+                        boxShadow: autoGenerateVoiceover ? '0 0 14px rgba(6, 182, 212, 0.5)' : 'none',
+                      }}
+                    >
+                      <Mic size={18} />
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#fff' }}>
+                          🎙️ ऑटो वॉइसओवर (Auto-Generate Voiceover)
+                        </h4>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            padding: '2px 8px',
+                            borderRadius: '999px',
+                            background: autoGenerateVoiceover ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.08)',
+                            color: autoGenerateVoiceover ? '#4ade80' : '#94a3b8',
+                            border: `1px solid ${autoGenerateVoiceover ? 'rgba(34, 197, 94, 0.4)' : 'rgba(255, 255, 255, 0.1)'}`,
+                            fontWeight: 600,
+                          }}
+                        >
+                          {autoGenerateVoiceover ? 'सक्रिय (ON) ✨' : 'वैकल्पिक (OFF)'}
+                        </span>
+                      </div>
+                      <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        Gemini द्वारा सबटाइटल तैयार होते ही हर सीन की आवाज़ न्यूरल TTS या आपकी सैंपल आवाज़ से स्वतः जुड़ जाएगी।
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Toggle Switch */}
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: autoGenerateVoiceover ? 'var(--primary-cyan)' : 'var(--text-secondary)' }}>
+                      {autoGenerateVoiceover ? 'वॉइसओवर चालू' : 'वॉइसओवर जोड़ें'}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={autoGenerateVoiceover}
+                      onChange={(e) => setAutoGenerateVoiceover(e.target.checked)}
+                      style={{
+                        width: '20px',
+                        height: '20px',
+                        accentColor: 'var(--primary-cyan)',
+                        cursor: 'pointer',
+                      }}
+                    />
+                  </label>
+                </div>
+
+                {/* Expanded Voice Selection & Sample Audio Settings when ON */}
+                {autoGenerateVoiceover && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '12px',
+                      paddingTop: '10px',
+                      borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                      {/* Voice Model Dropdown */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: '260px' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                          आवाज़ मॉडल चुनें:
+                        </span>
+                        <select
+                          value={ttsVoice}
+                          onChange={(e) => setTtsVoice(e.target.value)}
+                          style={{
+                            flex: 1,
+                            background: 'rgba(0, 0, 0, 0.45)',
+                            border: '1px solid rgba(6, 182, 212, 0.35)',
+                            borderRadius: '8px',
+                            color: '#fff',
+                            padding: '8px 12px',
+                            fontSize: '13px',
+                            outline: 'none',
+                          }}
+                        >
+                          <optgroup label="सर्वश्रेष्ठ हिंदी न्यूरल आवाज़ें (Microsoft Edge Neural - 100% Free)">
+                            <option value="hi-IN-MadhurNeural">🎙️ Madhur (मधुर - हिंदी पुरुष कथावाचक, एनीमे नरेटर)</option>
+                            <option value="hi-IN-SwaraNeural">🎙️ Swara (स्वरा - हिंदी महिला, मधुर व स्पष्ट)</option>
+                          </optgroup>
+                          <optgroup label="English Anime Voices (Neural)">
+                            <option value="en-US-ChristopherNeural">Christopher (Deep Anime Storyteller)</option>
+                            <option value="en-US-GuyNeural">Guy (Action Shonen Hero)</option>
+                            <option value="en-US-JennyNeural">Jenny (Expressive Female Heroine)</option>
+                            <option value="en-US-AriaNeural">Aria (Cinematic Narration)</option>
+                          </optgroup>
+                          <optgroup label="Japanese Anime Voices (Neural)">
+                            <option value="ja-JP-KeitaNeural">Keita (けいた - Japanese Male Anime)</option>
+                            <option value="ja-JP-NanamiNeural">Nanami (ななみ - Japanese Female Anime)</option>
+                          </optgroup>
+                          <optgroup label="Voice Cloning (मेरी सैंपल आवाज़)">
+                            <option value="sample-clone">✨ मेरी सैंपल आवाज़ (Voice Cloning - ElevenLabs)</option>
+                          </optgroup>
+                        </select>
+                      </div>
+
+                      {/* Sample Audio Upload for Cloning */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <label
+                          className="btn-secondary"
+                          style={{
+                            padding: '8px 14px',
+                            fontSize: '12px',
+                            cursor: 'pointer',
+                            borderColor: sampleVoiceUrl ? 'rgba(34, 197, 94, 0.5)' : 'rgba(6, 182, 212, 0.3)',
+                            background: sampleVoiceUrl ? 'rgba(34, 197, 94, 0.15)' : undefined,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                          }}
+                        >
+                          <Upload size={14} color={sampleVoiceUrl ? '#4ade80' : 'var(--primary-cyan)'} />
+                          <span>{isUploadingSampleVoice ? 'अपलोड हो रहा है...' : sampleVoiceName ? `सैंपल: ${sampleVoiceName.slice(0, 16)}...` : 'अपनी सैंपल आवाज़ अपलोड करें (.mp3)'}</span>
+                          <input
+                            type="file"
+                            accept="audio/*"
+                            style={{ display: 'none' }}
+                            onChange={handleSampleVoiceUpload}
+                            disabled={isUploadingSampleVoice}
+                          />
+                        </label>
+
+                        {sampleVoiceUrl && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <audio controls src={sampleVoiceUrl} style={{ height: '30px', width: '130px' }} />
+                            <button
+                              className="btn-secondary"
+                              onClick={() => {
+                                setSampleVoiceUrl('');
+                                setSampleVoiceName('');
+                              }}
+                              style={{ padding: '6px 8px', color: '#f87171' }}
+                              title="हटाएं"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Helpful Automatic Pacing Notification */}
+                    <div
+                      style={{
+                        fontSize: '11px',
+                        color: '#94a3b8',
+                        background: 'rgba(0, 0, 0, 0.25)',
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <Sparkles size={13} color="var(--primary-cyan)" />
+                      <span>
+                        <strong>सटीक टाइमिंग:</strong> आवाज़ की लंबाई के अनुसार हर सीन की अवधि (Duration) अपने आप सेट होगी ताकि कोई भी डायलॉग कभी बीच में न कटे।
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Panels Grid */}

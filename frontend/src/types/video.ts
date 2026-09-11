@@ -38,6 +38,28 @@ export interface AudioClip {
   type: 'voiceover' | 'bgm' | 'sfx';
 }
 
+export type ImageFitMode = 'contain' | 'cover' | 'custom';
+
+export interface ImageCropSettings {
+  fitMode: ImageFitMode; // 'contain' (पूरी इमेज बिना कटे), 'cover' (स्क्रीन भरें), 'custom' (फ्री-साइज़)
+  scale: number; // 0.5 to 3.0 (default: 1.0)
+  positionX: number; // -100 to +100 (%) (default: 0)
+  positionY: number; // -100 to +100 (%) (default: 0)
+  rotate?: number; // 0, 90, 180, 270 (default: 0)
+  backgroundBlur?: boolean; // true / false (default: true)
+  backgroundColor?: string; // hex color (default: '#000000')
+}
+
+export const DEFAULT_IMAGE_CROP: ImageCropSettings = {
+  fitMode: 'contain',
+  scale: 1.0,
+  positionX: 0,
+  positionY: 0,
+  rotate: 0,
+  backgroundBlur: true,
+  backgroundColor: '#000000',
+};
+
 export interface Scene {
   id: string;
   slideNumber?: number;
@@ -48,6 +70,7 @@ export interface Scene {
   narration?: string;
   subtitles: Subtitle[];
   audioClips: AudioClip[];
+  imageCrop?: ImageCropSettings;
 }
 
 export interface VideoProject {

@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
-import { Plus, Trash2, Copy, ChevronLeft, ChevronRight, Upload, Sparkles, Clock, Move, BookOpen } from 'lucide-react';
-import { Scene, TransitionEffect, DEFAULT_SUBTITLE_STYLE } from '../types/video';
+import { Plus, Trash2, Copy, ChevronLeft, ChevronRight, Upload, Sparkles, Clock, Move, BookOpen, Sliders, Crop, Maximize2, Minimize2 } from 'lucide-react';
+import { Scene, TransitionEffect, DEFAULT_SUBTITLE_STYLE, ImageFitMode } from '../types/video';
 
 interface SlideManagerProps {
   scenes: Scene[];
@@ -12,6 +12,7 @@ interface SlideManagerProps {
   onDuplicateSlide: (index: number) => void;
   onMoveSlide: (fromIndex: number, toIndex: number) => void;
   onOpenAnimeLibrary?: () => void;
+  onOpenCropModal?: (index: number) => void;
 }
 
 const EFFECTS: Array<{ value: TransitionEffect; label: string; icon: string }> = [
@@ -36,6 +37,7 @@ export const SlideManager: React.FC<SlideManagerProps> = ({
   onDuplicateSlide,
   onMoveSlide,
   onOpenAnimeLibrary,
+  onOpenCropModal,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const activeScene = scenes[selectedSceneIndex];
@@ -112,6 +114,41 @@ export const SlideManager: React.FC<SlideManagerProps> = ({
                 #{idx + 1}
               </div>
 
+              {/* Fit Mode Badge */}
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelectScene(idx);
+                  onOpenCropModal?.(idx);
+                }}
+                style={{
+                  position: 'absolute',
+                  top: '6px',
+                  right: '6px',
+                  background: 'rgba(0, 0, 0, 0.75)',
+                  backdropFilter: 'blur(4px)',
+                  borderRadius: '6px',
+                  padding: '2px 6px',
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  color:
+                    scene.imageCrop?.fitMode === 'cover'
+                      ? '#38bdf8'
+                      : scene.imageCrop?.fitMode === 'custom'
+                      ? '#c084fc'
+                      : '#4ade80',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  cursor: 'pointer',
+                }}
+                title="इमेज साइज़ / क्रॉप एडिट करें"
+              >
+                {scene.imageCrop?.fitMode === 'cover'
+                  ? '🔲 भरें'
+                  : scene.imageCrop?.fitMode === 'custom'
+                  ? `🎛️ ${Math.round((scene.imageCrop.scale || 1) * 100)}%`
+                  : '🖼️ पूरी'}
+              </div>
+
               {/* Effect & Duration Badge */}
               <div style={{
                 position: 'absolute',
@@ -129,7 +166,12 @@ export const SlideManager: React.FC<SlideManagerProps> = ({
                 color: '#ffffff',
               }}>
                 <span>{effectObj?.icon} {effectObj?.label}</span>
-                <span>{scene.duration}s</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  {scene.audioClips && scene.audioClips.length > 0 && (
+                    <span style={{ color: '#4ade80' }} title="वॉइसओवर जुड़ा हुआ है">🎙️</span>
+                  )}
+                  <span>{scene.duration}s</span>
+                </span>
               </div>
             </div>
           );
@@ -272,6 +314,28 @@ export const SlideManager: React.FC<SlideManagerProps> = ({
 
           {/* Right: Replace Image, Duplicate, Delete */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {/* Image Size & Free Crop Editor Button */}
+            <button
+              className="btn-secondary"
+              onClick={() => onOpenCropModal?.(selectedSceneIndex)}
+              style={{
+                padding: '6px 12px',
+                fontSize: '12px',
+                background: 'rgba(6, 182, 212, 0.12)',
+                border: '1px solid rgba(6, 182, 212, 0.35)',
+                color: '#38bdf8',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+              title="पूरी इमेज दिखाएं, स्क्रीन भरें, या फ्री-साइज़ ज़ूम व पैन करें"
+            >
+              <Sliders size={14} color="var(--primary-cyan)" />
+              <span>
+                साइज़: {activeScene.imageCrop?.fitMode === 'cover' ? 'भरें' : activeScene.imageCrop?.fitMode === 'custom' ? `${Math.round((activeScene.imageCrop.scale || 1) * 100)}%` : 'पूरी'}
+              </span>
+            </button>
+
             <input
               type="file"
               ref={fileInputRef}
