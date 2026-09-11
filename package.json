@@ -4,12 +4,17 @@
   "description": "Backend API for Gemini AI Slideshow Video Generator",
   "main": "dist/server.js",
   "scripts": {
+    "install:frontend": "npm --prefix frontend install",
+    "install:all": "npm install && npm run install:frontend",
+
     "dev": "cross-env NODE_ENV=development concurrently -n \"BACKEND,FRONTEND\" -c \"blue,magenta\" \"ts-node-dev --respawn --transpile-only --ignore-watch frontend src/server.ts\" \"npm --prefix frontend run dev\"",
     "dev:backend": "cross-env NODE_ENV=development ts-node-dev --respawn --transpile-only --ignore-watch frontend src/server.ts",
     "dev:frontend": "npm --prefix frontend run dev",
+
     "build:frontend": "npm --prefix frontend run build",
     "build:backend": "tsc",
     "build": "npm run build:frontend && npm run build:backend",
+
     "start": "npm run build && cross-env NODE_ENV=production node dist/server.js",
     "start:dev": "npm run build && cross-env NODE_ENV=development node dist/server.js"
   },
