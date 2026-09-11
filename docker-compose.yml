@@ -1,73 +1,72 @@
-﻿services:
-  # =========================================================================
-  # 1. Cloudflare Solver for Manga Sources
-  # =========================================================================
-  flaresolverr:
-    image: ghcr.io/thephaseless/byparr:latest
-    container_name: aivideo-flaresolverr
-    restart: unless-stopped
-    environment:
-      - TZ=Etc/UTC
-    healthcheck:
-      test: [CMD, curl, -f, http://localhost:8191/health]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    networks:
-      - aivideo-network
+version: '3.8'
 
-  # =========================================================================
-  # 2. Suwayomi / Tachidesk Manga & Anime Server
-  # =========================================================================
+# ==============================================================================
+# 🚀 AI Video Studio & Anime/Manga Docker Compose Stack
+# ==============================================================================
+# यह एकल कम्पोज़ फ़ाइल सभी 4 सेवाओं को चलाती है:
+# 1. suwayomi: Suwayomi (Tachidesk) Anime/Manga Server (Port 4567)
+# 2. mongodb: MongoDB Database (Port 27017)
+# 3. backend: Node.js, Express, FFmpeg, Gemini AI Engine (Port 5000)
+# 4. frontend: React, Vite, Nginx Web Server (Port 80)
+#
+# 📌 सभी सेटिंग्स एकल .env फ़ाइल से ली जाती हैं।
+# 📌 चलाने का कमांड: docker compose up -d
+# 📌 बंद करने का कमांड: docker compose down
+# ==============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # 📚 1. Suwayomi Anime & Manga Server
+  # ---------------------------------------------------------------------------
   suwayomi:
     image: ghcr.io/suwayomi/tachidesk:latest
     container_name: aivideo-suwayomi
     restart: unless-stopped
     ports:
-      - 4567:4567
+      - "4567:4567"
     environment:
-      - FLARESOLVERR_URL=http://flaresolverr:8191
-      - FLARESOLVERR_ENABLED=true
-      - TZ=Etc/UTC
+      - BIND_IP=0.0.0.0
+      - BIND_PORT=4567
+      - WEB_UI_ENABLED=true
+      - TZ=Asia/Kolkata
     volumes:
       - suwayomi_data:/home/suwayomi/.local/share/Tachidesk
-    depends_on:
-      - flaresolverr
     networks:
       - aivideo-network
 
-  # =========================================================================
-  # 3. Persistent Database for Character Lore & Story Memory
-  # =========================================================================
+  # ---------------------------------------------------------------------------
+  # 🗄️ 2. MongoDB Database
+  # ---------------------------------------------------------------------------
   mongodb:
-    image: mongo:7.0
+    image: mongo:7
     container_name: aivideo-mongodb
     restart: unless-stopped
     ports:
-      - 27017:27017
+      - "27017:27017"
     volumes:
       - mongodb_data:/data/db
     networks:
       - aivideo-network
 
-  # =========================================================================
-  # 4. AI Video Studio Backend (Node.js / Express / Gemini API)
-  # =========================================================================
+  # ---------------------------------------------------------------------------
+  # 🎬 3. AI Video Studio Backend (Unified Single Web Service: UI + API)
+  # ---------------------------------------------------------------------------
   backend:
     build:
-      context: ./backend
+      context: .
       dockerfile: Dockerfile
     container_name: aivideo-backend
     restart: unless-stopped
     ports:
-      - 5000:5000
+      - "${PORT:-5000}:5000"
+    env_file:
+      - .env
     environment:
       - PORT=5000
-      - CLIENT_URL=http://localhost:5173
-      - MONGODB_URI=mongodb://mongodb:27017/aivideo
-      - SUWAYOMI_URL=http://suwayomi:4567
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/aivideo}
+      - SUWAYOMI_URL=${SUWAYOMI_URL:-http://suwayomi:4567}
+      - CLIENT_URL=${CLIENT_URL:-http://localhost:5000}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
     volumes:
       - backend_storage:/app/storage
     depends_on:
@@ -76,25 +75,26 @@
     networks:
       - aivideo-network
 
-  # =========================================================================
-  # 5. AI Video Studio Frontend (React + Vite + Nginx Reverse Proxy)
-  # =========================================================================
+  # ---------------------------------------------------------------------------
+  # 🌐 4. Frontend Web Studio
+  # ---------------------------------------------------------------------------
   frontend:
     build:
-      context: ./frontend
+      context: ../frontend
       dockerfile: Dockerfile
     container_name: aivideo-frontend
     restart: unless-stopped
     ports:
-      - 5173:80
+      - "80:80"
     depends_on:
       - backend
+      - suwayomi
     networks:
       - aivideo-network
 
-# ===========================================================================
-# Persistent Storage Volumes
-# ===========================================================================
+# -----------------------------------------------------------------------------
+# 💾 Persistent Volumes
+# -----------------------------------------------------------------------------
 volumes:
   suwayomi_data:
     name: aivideo_suwayomi_data
@@ -103,9 +103,9 @@ volumes:
   backend_storage:
     name: aivideo_backend_storage
 
-# ===========================================================================
-# Network Definition
-# ===========================================================================
+# -----------------------------------------------------------------------------
+# 🔗 Network
+# -----------------------------------------------------------------------------
 networks:
   aivideo-network:
     name: aivideo-network

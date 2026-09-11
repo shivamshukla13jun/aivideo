@@ -36,15 +36,14 @@
 ### शामिल सेवाएं:
 1. **`suwayomi`**: आधिकारिक इमेज `ghcr.io/suwayomi/tachidesk:latest` (पोर्ट `4567`)
 2. **`mongodb`**: डेटाबेस इमेज `mongo:7` (पोर्ट `27017`)
-3. **`backend`**: Node.js + Express + FFmpeg + Gemini AI (पोर्ट `5000`)
-4. **`frontend`**: React + Vite + Nginx रिवर्स प्रॉक्सी (पोर्ट `80`)
+3. **`backend`**: Unified Web Service (React Frontend + Node.js + Express + FFmpeg + Gemini AI) (पोर्ट `5000` - **Frontend और Backend दोनों एक साथ**)
+4. **`frontend`**: React + Vite + Nginx रिवर्स प्रॉक्सी (पोर्ट `80`, वैकल्पिक)
+
+> 💡 **नया अपडेट**: बैकएंड इमेज (`backend/Dockerfile`) अब स्वचालित रूप से **Frontend और Backend दोनों को बिल्ड** करती है। आप सीधे `http://localhost:5000` पर पूरा वेब स्टूडियो UI और APIs एक साथ चला सकते हैं!
 
 ### चलाने के कमांड:
 ```bash
-# बैकएंड फोल्डर में जाएं
-cd backend
-
-# सभी 4 कंटेनर्स बैकग्राउंड में चालू करें
+# प्रोजेक्ट के मुख्य रूट फोल्डर या backend फोल्डर से:
 docker compose up -d
 
 # कंटेनर्स की लाइव स्थिति जांचें

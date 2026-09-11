@@ -4,9 +4,14 @@
   "description": "Backend API for Gemini AI Slideshow Video Generator",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "build": "tsc",
-    "start": "node dist/server.js"
+    "dev": "cross-env NODE_ENV=development concurrently -n \"BACKEND,FRONTEND\" -c \"blue,magenta\" \"ts-node-dev --respawn --transpile-only --ignore-watch frontend src/server.ts\" \"npm --prefix frontend run dev\"",
+    "dev:backend": "cross-env NODE_ENV=development ts-node-dev --respawn --transpile-only --ignore-watch frontend src/server.ts",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:frontend": "npm --prefix frontend run build",
+    "build:backend": "tsc",
+    "build": "npm run build:frontend && npm run build:backend",
+    "start:prod": "npm run build && cross-env NODE_ENV=production node dist/server.js",
+    "start:dev": "npm run build && cross-env NODE_ENV=development node dist/server.js"
   },
   "dependencies": {
     "@google/genai": "^2.21.0",
@@ -29,6 +34,8 @@
     "@types/multer": "^1.4.11",
     "@types/node": "^20.12.7",
     "@types/uuid": "^9.0.8",
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.4.5"
   }
