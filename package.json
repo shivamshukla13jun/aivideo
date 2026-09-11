@@ -15,7 +15,7 @@
     "build:backend": "tsc",
     "build": "npm run build:frontend && npm run build:backend",
 
-    "start": "npm run build && cross-env NODE_ENV=production node dist/server.js",
+    "start": "npm run install:all && npm run build && cross-env NODE_ENV=production node dist/server.js",
     "start:dev": "npm run build && cross-env NODE_ENV=development node dist/server.js"
   },
   "dependencies": {
