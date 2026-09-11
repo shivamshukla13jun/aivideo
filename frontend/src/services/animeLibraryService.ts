@@ -22,7 +22,7 @@ export interface AnimeChapter {
   isDownloaded?: boolean;
 }
 
-const GRAPHQL_URL = '/suwayomi/api/graphql';
+const GRAPHQL_URL = 'https://suwayomi-server-stable-ky1i.onrender.com/graphql';
 
 const GET_LIBRARY_MANGAS = `
   query GET_LIBRARY_MANGAS {
