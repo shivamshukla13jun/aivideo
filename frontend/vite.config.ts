@@ -14,23 +14,23 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/suwayomi': {
-        target: 'http://127.0.0.1:4567',
+        target: 'https://suwayomi-server-stable-ky1i.onrender.com',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/suwayomi/, ''),
         timeout: 0,
       },
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'https://aivideo-ln2b.onrender.com',
         changeOrigin: true,
         timeout: 0,
       },
       '/storage': {
-        target: 'http://localhost:5000',
+        target: 'https://aivideo-ln2b.onrender.com',
         changeOrigin: true,
         timeout: 0,
       },
       '/socket.io': {
-        target: 'http://localhost:5000',
+        target: 'https://aivideo-ln2b.onrender.com',
         ws: true,
         timeout: 0,
       },
