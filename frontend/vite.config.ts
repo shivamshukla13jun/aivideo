@@ -13,17 +13,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/suwayomi': {
-        target: 'https://suwayomi-server-stable-ky1i.onrender.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/suwayomi/, ''),
-        timeout: 0,
-      },
-      '/api': {
-        target: 'https://aivideo-ln2b.onrender.com',
-        changeOrigin: true,
-        timeout: 0,
-      },
+      
       '/storage': {
         target: 'https://aivideo-ln2b.onrender.com',
         changeOrigin: true,
