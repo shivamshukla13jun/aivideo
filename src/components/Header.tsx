@@ -137,18 +137,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden lg:inline">History</span>
           </button>
 
-          <button
-            id="nav-tab-settings"
-            onClick={() => onTabChange('settings')}
-            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all shrink-0 cursor-pointer ${
-              currentTab === 'settings'
-                ? 'bg-zinc-800 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
-            }`}
-          >
-            <Settings className="w-4 h-4" />
-            <span className="hidden lg:inline">Settings</span>
-          </button>
         </nav>
 
         {/* Right Actions: Upload CBZ, Android APK, MongoDB status & Download Project ZIP */}
@@ -165,59 +153,6 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden md:inline">Upload CBZ</span>
             </button>
           )}
-
-          {/* Android APK Download Button */}
-          {onOpenApkModal && (
-            <button
-              id="btn-android-apk-modal"
-              onClick={onOpenApkModal}
-              title="Download Android App / APK or install on mobile"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition-all cursor-pointer shadow-sm"
-            >
-              <Smartphone className="w-4 h-4 text-rose-400" />
-              <span className="hidden sm:inline">Android APK</span>
-            </button>
-          )}
-
-          {/* MongoDB Connection Status Pill */}
-          <button
-            id="btn-mongo-status"
-            onClick={onOpenMongoModal}
-            title={
-              isMongoConnected
-                ? `Connected to MongoDB: ${mongoStatus.uri || 'Active'}`
-                : 'Using resilient in-memory fallback. Click to connect to MongoDB.'
-            }
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-              isMongoConnected
-                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
-                : 'bg-amber-500/10 text-amber-300 border-amber-500/20 hover:bg-amber-500/20'
-            }`}
-          >
-            <Database className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline">
-              {isMongoConnected ? 'MongoDB' : 'Memory Store'}
-            </span>
-            {isMongoConnected ? (
-              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-            ) : (
-              <AlertCircle className="w-3 h-3 text-amber-400" />
-            )}
-          </button>
-
-          {/* Download Project ZIP Button */}
-          <button
-            id="btn-download-project-zip"
-            onClick={onDownloadZip}
-            disabled={isDownloadingZip}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-500 active:scale-95 text-white shadow-md shadow-rose-950/40 transition-all cursor-pointer"
-          >
-            <FolderArchive className="w-4 h-4" />
-            <span className="hidden sm:inline">
-              {isDownloadingZip ? 'Packaging...' : 'Download Project ZIP'}
-            </span>
-            <Download className="w-3.5 h-3.5 opacity-80" />
-          </button>
         </div>
       </div>
     </header>

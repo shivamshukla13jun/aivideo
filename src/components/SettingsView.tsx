@@ -23,7 +23,6 @@ import { MongoStatus } from '../types.js';
 interface SettingsViewProps {
   mongoStatus: MongoStatus;
   onRefreshMongoStatus: () => void;
-  onConnectMongo: (uri: string) => Promise<void>;
   onDownloadZip: () => void;
   isDownloadingZip: boolean;
 }
@@ -31,15 +30,9 @@ interface SettingsViewProps {
 export const SettingsView: React.FC<SettingsViewProps> = ({
   mongoStatus,
   onRefreshMongoStatus,
-  onConnectMongo,
   onDownloadZip,
   isDownloadingZip,
 }) => {
-  const [mongoUri, setMongoUri] = useState(
-    mongoStatus.uri || 'mongodb://localhost:27017/suwayomi'
-  );
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [connectMessage, setConnectMessage] = useState<string | null>(null);
   const [cloudinaryStatus, setCloudinaryStatus] = useState<{ configured: boolean; cloudName?: string } | null>(null);
 
   useEffect(() => {
@@ -48,21 +41,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       .then((data) => setCloudinaryStatus(data))
       .catch(() => {});
   }, []);
-
-  const handleConnectSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!mongoUri.trim()) return;
-    setIsConnecting(true);
-    setConnectMessage(null);
-    try {
-      await onConnectMongo(mongoUri.trim());
-      setConnectMessage('Connection updated.');
-    } catch (err: any) {
-      setConnectMessage(err.message || 'Connection failed.');
-    } finally {
-      setIsConnecting(false);
-    }
-  };
 
   const handleExportBackup = () => {
     window.open('/api/v1/backup/export', '_blank');
@@ -206,8 +184,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </span>
           </div>
           <div className="flex items-center justify-between text-zinc-300">
-            <span className="text-zinc-500">Target Connection URI:</span>
-            <span className="font-mono text-zinc-400 break-all">{mongoStatus.uri || 'None'}</span>
+            <span className="text-zinc-500">Connection Source:</span>
+            <span className="font-mono font-medium">MONGODB_URI environment variable</span>
           </div>
           {mongoStatus.error && (
             <p className="text-amber-400/90 pt-1 text-[11px] leading-relaxed">
@@ -215,34 +193,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </p>
           )}
         </div>
-
-        {/* Change MongoDB URI Form */}
-        <form onSubmit={handleConnectSubmit} className="space-y-3">
-          <label className="block text-xs font-semibold text-zinc-300">
-            Connect Custom MongoDB / MongoDB Atlas URI:
-          </label>
-          <div className="flex flex-col sm:flex-row items-center gap-2">
-            <input
-              id="input-mongo-uri-settings"
-              type="text"
-              value={mongoUri}
-              onChange={(e) => setMongoUri(e.target.value)}
-              placeholder="mongodb://localhost:27017/suwayomi or mongodb+srv://..."
-              className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-700 text-xs font-mono text-zinc-200 focus:outline-none focus:border-rose-500"
-            />
-            <button
-              type="submit"
-              id="btn-submit-mongo-settings"
-              disabled={isConnecting}
-              className="w-full sm:w-auto px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shrink-0 transition-all cursor-pointer"
-            >
-              {isConnecting ? 'Connecting...' : 'Connect / Test'}
-            </button>
-          </div>
-          {connectMessage && (
-            <p className="text-xs text-zinc-400 mt-1">{connectMessage}</p>
-          )}
-        </form>
 
         {/* Database Collection Metrics */}
         {mongoStatus.stats && (

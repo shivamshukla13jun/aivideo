@@ -122,16 +122,6 @@ const HistorySchema = new Schema<IHistoryDoc>({
   lastPageRead: { type: Number, default: 0 },
 }, { timestamps: true });
 
-export interface ISettingDoc extends Document {
-  key: string;
-  value: any;
-}
-
-const SettingSchema = new Schema<ISettingDoc>({
-  key: { type: String, required: true, unique: true },
-  value: { type: Schema.Types.Mixed },
-}, { timestamps: true });
-
 export interface IDownloadQueueDoc extends Document {
   chapterId: number;
   mangaId: number;
@@ -166,6 +156,5 @@ export const ChapterModel: any = mongoose.models.Chapter || mongoose.model<IChap
 export const CategoryModel: any = mongoose.models.Category || mongoose.model<ICategoryDoc>('Category', CategorySchema);
 export const TrackerModel: any = mongoose.models.Tracker || mongoose.model<ITrackerDoc>('Tracker', TrackerSchema);
 export const HistoryModel: any = mongoose.models.History || mongoose.model<IHistoryDoc>('History', HistorySchema);
-export const SettingModel: any = mongoose.models.Setting || mongoose.model<ISettingDoc>('Setting', SettingSchema);
 export const DownloadQueueModel: any = mongoose.models.DownloadQueue || mongoose.model<IDownloadQueueDoc>('DownloadQueue', DownloadQueueSchema);
 

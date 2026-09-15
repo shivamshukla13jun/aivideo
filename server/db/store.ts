@@ -4,7 +4,6 @@ import {
   CategoryModel,
   TrackerModel,
   HistoryModel,
-  SettingModel,
 } from './models.js';
 import { deleteWebtoonScript, deleteMangaWebtoonScripts, getWebtoonScript } from './webtoonStore.js';
 

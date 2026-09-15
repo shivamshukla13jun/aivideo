@@ -52,7 +52,7 @@ import {
   removeQueueItem,
   getDownloaderStatus,
 } from '../services/downloadManager.js';
-import { getMongoConnectionInfo, connectMongoDB } from '../db/connection.js';
+import { getMongoConnectionInfo } from '../db/connection.js';
 import {
   getWebtoonScript,
   saveWebtoonScript,
@@ -814,7 +814,7 @@ apiRouter.get('/settings/about', async (req, res) => {
       version: '1.0.0-ts',
       flavor: 'TypeScript / Express / React / MongoDB',
       port: 3000,
-      database: connInfo,
+      database: { connected: connInfo.state === 'connected', status: connInfo.state },
       stats,
     });
   } catch (err: any) {
@@ -829,28 +829,7 @@ apiRouter.get('/database/status', async (req, res) => {
     res.json({
       connected: connInfo.state === 'connected',
       status: connInfo.state,
-      uri: connInfo.uri,
       error: connInfo.error,
-      stats,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-apiRouter.post('/database/connect', async (req, res) => {
-  try {
-    const { uri } = req.body;
-    if (!uri) {
-      return res.status(400).json({ error: 'MongoDB connection URI is required' });
-    }
-    const result = await connectMongoDB(uri);
-    const stats = await getStats();
-    res.json({
-      connected: result.state === 'connected',
-      status: result.state,
-      uri: result.uri,
-      error: result.error,
       stats,
     });
   } catch (err: any) {

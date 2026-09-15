@@ -76,7 +76,6 @@ export interface HistoryItem {
 export interface MongoStatus {
   connected: boolean;
   status: 'connected' | 'disconnected' | 'in-memory-fallback' | 'connecting';
-  uri?: string;
   error?: string;
   stats?: {
     mangaCount: number;

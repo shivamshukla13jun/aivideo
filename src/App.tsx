@@ -18,13 +18,12 @@ import { MangaReader } from './components/MangaReader.js';
 import { MongoStatusModal } from './components/MongoStatusModal.js';
 import { AndroidApkModal } from './components/AndroidApkModal.js';
 import { UploadCbzModal } from './components/UploadCbzModal.js';
-import { NavigationTab, Manga, Chapter, Category, Source, MongoStatus } from './types.js';
+import { NavigationTab, Manga, Chapter, Category, MongoStatus } from './types.js';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<NavigationTab>('library');
   const [mangas, setMangas] = useState<Manga[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [sources, setSources] = useState<Source[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
   const [downloadCount, setDownloadCount] = useState<number>(0);
 
@@ -42,14 +41,12 @@ export default function App() {
   const [mongoStatus, setMongoStatus] = useState<MongoStatus>({
     connected: false,
     status: 'connecting',
-    uri: '',
   });
   const [isMongoModalOpen, setIsMongoModalOpen] = useState(false);
   const [isApkModalOpen, setIsApkModalOpen] = useState(false);
   const [isUploadCbzModalOpen, setIsUploadCbzModalOpen] = useState(false);
   const [uploadModalMangaId, setUploadModalMangaId] = useState<number | null>(null);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
-  const [browseSourceId, setBrowseSourceId] = useState<string | undefined>(undefined);
 
   // Initial load
   const loadData = useCallback(async () => {
@@ -64,7 +61,6 @@ export default function App() {
 
       if (mangaRes.ok) setMangas(await mangaRes.json());
       if (catRes.ok) setCategories(await catRes.json());
-      if (srcRes.ok) setSources(await srcRes.json());
       if (dbRes.ok) setMongoStatus(await dbRes.json());
       if (dlRes.ok) {
         const dlStatus = await dlRes.json();
@@ -269,17 +265,6 @@ export default function App() {
     });
   };
 
-  // Connect MongoDB
-  const handleConnectMongo = async (uri: string) => {
-    const res = await fetch('/api/v1/database/connect', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uri }),
-    });
-    const status = await res.json();
-    setMongoStatus(status);
-  };
-
   // Delete manga
   const handleDeleteManga = async (mangaId: number) => {
     try {
@@ -443,15 +428,6 @@ export default function App() {
               />
             )}
 
-            {currentTab === 'settings' && (
-              <SettingsView
-                mongoStatus={mongoStatus}
-                onRefreshMongoStatus={loadData}
-                onConnectMongo={handleConnectMongo}
-                onDownloadZip={handleDownloadZip}
-                isDownloadingZip={isDownloadingZip}
-              />
-            )}
           </>
         )}
       </main>
@@ -502,7 +478,6 @@ export default function App() {
         isOpen={isMongoModalOpen}
         onClose={() => setIsMongoModalOpen(false)}
         mongoStatus={mongoStatus}
-        onConnectMongo={handleConnectMongo}
         onRefreshMongoStatus={loadData}
       />
 

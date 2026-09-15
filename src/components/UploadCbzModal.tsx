@@ -68,6 +68,34 @@ export const UploadCbzModal: React.FC<UploadCbzModalProps> = ({
     }
   }, [isOpen, initialMangaId, initialMode, existingMangas]);
 
+  // Load chapters of the selected existing manga for the replace option
+  React.useEffect(() => {
+    if (mode !== 'existing' || !selectedMangaId) {
+      setExistingChapters([]);
+      setReplaceChapterId(null);
+      return;
+    }
+    let isMounted = true;
+    setIsLoadingExistingChapters(true);
+    fetch(`/api/v1/manga/${selectedMangaId}/chapters`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (!isMounted) return;
+        const list: Chapter[] = data || [];
+        setExistingChapters(list);
+        if (list.length > 0) setReplaceChapterId((prev) => prev ?? list[0].id);
+      })
+      .catch(() => {
+        if (isMounted) setExistingChapters([]);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingExistingChapters(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [mode, selectedMangaId]);
+
   // Form Metadata
   const [title, setTitle] = useState('');
   const [author, setAuthor] = useState('');
@@ -271,34 +299,6 @@ export const UploadCbzModal: React.FC<UploadCbzModalProps> = ({
     setExtractedChapters((prev) => prev.filter((c) => c.id !== id));
     setExpandedChapterId((prev) => (prev === id ? null : prev));
   };
-
-  // Load chapters of the selected existing manga for the replace option
-  React.useEffect(() => {
-    if (mode !== 'existing' || !selectedMangaId) {
-      setExistingChapters([]);
-      setReplaceChapterId(null);
-      return;
-    }
-    let isMounted = true;
-    setIsLoadingExistingChapters(true);
-    fetch(`/api/v1/manga/${selectedMangaId}/chapters`)
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => {
-        if (!isMounted) return;
-        const list: Chapter[] = data || [];
-        setExistingChapters(list);
-        if (list.length > 0) setReplaceChapterId((prev) => prev ?? list[0].id);
-      })
-      .catch(() => {
-        if (isMounted) setExistingChapters([]);
-      })
-      .finally(() => {
-        if (isMounted) setIsLoadingExistingChapters(false);
-      });
-    return () => {
-      isMounted = false;
-    };
-  }, [mode, selectedMangaId]);
 
   const handleRemovePage = (chapterId: string, pageIndex: number) => {
     setExtractedChapters((prev) =>
