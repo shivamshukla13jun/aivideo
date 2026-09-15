@@ -465,6 +465,36 @@ OUTPUT FORMAT: Return VALID JSON ONLY with this exact JSON structure:
           }
         );
 
+        // Ensure EVERY chapter page strip gets a panel — the AI may skip trailing
+        // pages, but no image should ever be dropped from the generated script.
+        for (let idx = panelsWithUrls.length; idx < pages.length; idx++) {
+          const dHindi = `दृश्य जारी रहता है — पृष्ठ ${idx + 1} पर कहानी आगे बढ़ती है, और नायक अगले मोड़ के लिए तैयार होता है।`;
+          const dEnglish = `The scene continues — on page ${idx + 1} the story moves forward as the hero readies for the next turn.`;
+          const mkIncident = (n: number, top: number, height: number): WebtoonIncident => ({
+            incidentIndex: n,
+            incidentTitle: `Panel ${idx + 1} - Scene ${n}`,
+            cropRect: { topPct: top, heightPct: height },
+            speaker: n === 2 ? 'Narrator' : `${mangaTitle} Protagonist`,
+            dialogueHindi: dHindi,
+            dialogueEnglish: dEnglish,
+            sfx: 'Whoosh',
+            actionDescription: 'Vertical camera pan on strip section',
+            estimatedDurationSec: calculateDurationFromSubtitle(dHindi),
+          });
+          panelsWithUrls.push({
+            panelIndex: idx + 1,
+            pageUrl: pages[idx],
+            dialogueHindi: dHindi,
+            dialogueEnglish: dEnglish,
+            speaker: 'Narrator',
+            actionDescription: 'Vertical webtoon camera scroll',
+            bgmSuggestion: 'Cinematic Action BGM',
+            sfx: 'Whoosh',
+            estimatedDurationSec: calculateDurationFromSubtitle(dHindi),
+            incidents: [mkIncident(1, 0, 33), mkIncident(2, 33, 33), mkIncident(3, 66, 34)],
+          });
+        }
+
         const characters: WebtoonCharacter[] = (parsed.characters || []).map(
           (c: any, idx: number) => ({
             id: c.id || `char_${mangaId}_${chapterId}_${idx + 1}`,
@@ -775,7 +805,8 @@ function generateFallbackWebtoonScript(params: {
     `Standing resolute amidst swirling embers and smoke, the fighter reset his balance, declaring, "This battle has only just begun," preparing the finishing blow.`,
   ];
 
-  const panels: WebtoonPanel[] = pageList.slice(0, 10).map((url, idx) => {
+  // Every page strip becomes a panel — never drop images during auto-extraction.
+  const panels: WebtoonPanel[] = pageList.map((url, idx) => {
     const dHindi = hindiVividScenarios[idx % hindiVividScenarios.length];
     const dEnglish = englishVividScenarios[idx % englishVividScenarios.length];
     const inc1Hindi = hindiVividScenarios[(idx * 2) % hindiVividScenarios.length];
