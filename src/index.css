@@ -1,1 +1,29 @@
 @import "tailwindcss";
+
+/* Ken Burns camera-motion keyframes for webtoon scene images.
+   Translate is relative to the image's own size, so a slight scale-up
+   guarantees no empty edges are exposed while panning. */
+@keyframes kb-top-bottom {
+  from { transform: scale(1.18) translateY(5%); }
+  to { transform: scale(1.18) translateY(-5%); }
+}
+@keyframes kb-bottom-top {
+  from { transform: scale(1.18) translateY(-5%); }
+  to { transform: scale(1.18) translateY(5%); }
+}
+@keyframes kb-left-right {
+  from { transform: scale(1.18) translateX(5%); }
+  to { transform: scale(1.18) translateX(-5%); }
+}
+@keyframes kb-right-left {
+  from { transform: scale(1.18) translateX(-5%); }
+  to { transform: scale(1.18) translateX(5%); }
+}
+@keyframes kb-zoom-in {
+  from { transform: scale(1); }
+  to { transform: scale(1.18); }
+}
+@keyframes kb-zoom-out {
+  from { transform: scale(1.18); }
+  to { transform: scale(1); }
+}

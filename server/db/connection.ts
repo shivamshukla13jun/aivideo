@@ -11,16 +11,16 @@ interface ConnectionInfo {
 
 const connectionInfo: ConnectionInfo = {
   state: 'connecting',
-  uri: process.env.MONGODB_URI,
+  uri: process.env.MONGODB_URI as string,
 };
 
 export async function initMongoDB(): Promise<ConnectionInfo> {
-  const uri = process.env.MONGODB_URI;
+  const uri = process.env.MONGODB_URI as string;
   return connectMongoDB(uri);
 }
 
 export async function connectMongoDB(uriString?: string): Promise<ConnectionInfo> {
-  const uri = uriString || process.env.MONGODB_URI;
+  const uri = uriString || (process.env.MONGODB_URI as string);
   connectionInfo.uri = uri;
   connectionInfo.state = 'connecting';
   connectionInfo.error = undefined;

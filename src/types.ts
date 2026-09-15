@@ -160,6 +160,16 @@ export interface WebtoonCropRect {
   widthPct?: number;
 }
 
+export type WebtoonPanDirection =
+  | 'auto'
+  | 'none'
+  | 'top-bottom'
+  | 'bottom-top'
+  | 'left-right'
+  | 'right-left'
+  | 'zoom-in'
+  | 'zoom-out';
+
 export interface WebtoonIncident {
   incidentIndex: number;
   incidentTitle: string;
@@ -175,6 +185,7 @@ export interface WebtoonIncident {
   userAudioUrl?: string;
   userAudioDuration?: number;
   estimatedDurationSec?: number;
+  panDirection?: WebtoonPanDirection;
 }
 
 export interface WebtoonPanel {
@@ -194,6 +205,7 @@ export interface WebtoonPanel {
   userAudioDuration?: number;
   skipped?: boolean;
   cropRect?: WebtoonCropRect;
+  panDirection?: WebtoonPanDirection;
   incidents?: WebtoonIncident[];
 }
 

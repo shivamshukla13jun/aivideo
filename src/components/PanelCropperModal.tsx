@@ -27,6 +27,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  X,
 } from 'lucide-react';
 import { Manga, Chapter } from '../types.js';
 
@@ -138,9 +139,28 @@ export const PanelCropperModal: React.FC<PanelCropperModalProps> = ({
   const [includeUncroppedPages, setIncludeUncroppedPages] = useState<boolean>(true);
   const [useOriginalStrips, setUseOriginalStrips] = useState<boolean>(false);
 
+  // 1-based page numbers the user has deleted from the rebuilt chapter
+  const [removedPages, setRemovedPages] = useState<Set<number>>(new Set());
+
+  const toggleRemovePage = (pageNum: number) => {
+    setRemovedPages((prev) => {
+      const next = new Set(prev);
+      if (next.has(pageNum)) {
+        next.delete(pageNum);
+        triggerToast(`Page ${pageNum} restored to chapter.`);
+      } else {
+        next.add(pageNum);
+        triggerToast(`Page ${pageNum} removed from rebuilt chapter.`);
+      }
+      return next;
+    });
+  };
+
   // 1-based page numbers that have at least one cropped panel
   const croppedPageSet = new Set(croppedPanels.map((p) => p.sourcePageIndex));
-  const uncroppedPagesCount = pages.filter((_, idx) => !croppedPageSet.has(idx + 1)).length;
+  const uncroppedPagesCount = pages.filter(
+    (_, idx) => !croppedPageSet.has(idx + 1) && !removedPages.has(idx + 1)
+  ).length;
 
   const jumpToNextUncroppedPage = () => {
     const nextIdx = pages.findIndex((_, idx) => !croppedPageSet.has(idx + 1));
@@ -770,7 +790,7 @@ export const PanelCropperModal: React.FC<PanelCropperModalProps> = ({
             note: p.note,
           });
         });
-      } else {
+      } else if (!removedPages.has(pageNum)) {
         items.push({
           url: pages[i],
           isCropped: false,
@@ -1556,7 +1576,7 @@ export const PanelCropperModal: React.FC<PanelCropperModalProps> = ({
               )}
 
               {/* Retained Uncropped Pages Section */}
-              {includeUncroppedPages && uncroppedPagesCount > 0 && (
+              {includeUncroppedPages && (uncroppedPagesCount > 0 || removedPages.size > 0) && (
                 <div className="p-3.5 rounded-2xl bg-zinc-900/60 border border-dashed border-zinc-800 space-y-2">
                   <div className="flex items-center justify-between text-xs font-semibold text-zinc-300">
                     <span className="flex items-center gap-1.5 text-zinc-200 font-bold">
@@ -1571,23 +1591,53 @@ export const PanelCropperModal: React.FC<PanelCropperModalProps> = ({
                   <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
                     {pages.map((_, idx) => {
                       const isCropped = croppedPageSet.has(idx + 1);
-                      if (isCropped) return null;
+                      if (isCropped || removedPages.has(idx + 1)) return null;
                       return (
-                        <button
-                          key={idx}
-                          onClick={() => {
-                            setSelectedPageIndex(idx);
-                            setIsQueueDrawerOpen(false);
-                          }}
-                          className="px-2.5 py-1 rounded-lg bg-zinc-800/80 border border-zinc-700/60 hover:border-amber-500/50 text-[11px] text-zinc-300 hover:text-white shrink-0 flex items-center gap-1 cursor-pointer transition-colors"
-                          title={`Click to switch and crop Page ${idx + 1}`}
-                        >
-                          <span>Page {idx + 1}</span>
-                          <Crop className="w-2.5 h-2.5 text-amber-400 ml-0.5" />
-                        </button>
+                        <div key={idx} className="relative shrink-0 group">
+                          <button
+                            onClick={() => {
+                              setSelectedPageIndex(idx);
+                              setIsQueueDrawerOpen(false);
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-zinc-800/80 border border-zinc-700/60 hover:border-amber-500/50 text-[11px] text-zinc-300 hover:text-white flex items-center gap-1 cursor-pointer transition-colors"
+                            title={`Click to switch and crop Page ${idx + 1}`}
+                          >
+                            <span>Page {idx + 1}</span>
+                            <Crop className="w-2.5 h-2.5 text-amber-400 ml-0.5" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleRemovePage(idx + 1);
+                            }}
+                            className="absolute -top-1.5 -right-1.5 p-0.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white shadow-md opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                            title={`Remove Page ${idx + 1} from rebuilt chapter`}
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
                       );
                     })}
                   </div>
+
+                  {/* Removed pages — click to restore */}
+                  {removedPages.size > 0 && (
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
+                      <span className="text-[10px] text-rose-400 font-bold shrink-0">Removed:</span>
+                      {[...removedPages]
+                        .sort((a, b) => a - b)
+                        .map((pg) => (
+                          <button
+                            key={pg}
+                            onClick={() => toggleRemovePage(pg)}
+                            className="px-2.5 py-1 rounded-lg bg-rose-950/60 border border-rose-800/60 hover:border-rose-500/60 text-[11px] text-rose-300 line-through hover:no-underline shrink-0 cursor-pointer transition-colors"
+                            title={`Restore Page ${pg} to rebuilt chapter`}
+                          >
+                            Page {pg}
+                          </button>
+                        ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

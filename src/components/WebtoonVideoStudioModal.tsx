@@ -38,8 +38,9 @@ import {
   Filter,
   Layers,
   Gauge,
+  Move,
 } from 'lucide-react';
-import { Manga, Chapter, WebtoonScript, WebtoonPanel, WebtoonCharacter, WebtoonCropRect, WebtoonIncident } from '../types.js';
+import { Manga, Chapter, WebtoonScript, WebtoonPanel, WebtoonCharacter, WebtoonCropRect, WebtoonIncident, WebtoonPanDirection } from '../types.js';
 
 export interface WebtoonFlatScene {
   sceneId: string;
@@ -49,6 +50,7 @@ export interface WebtoonFlatScene {
   sceneTitle: string;
   pageUrl: string;
   cropRect: { topPct: number; heightPct: number };
+  panDirection?: WebtoonPanDirection;
   speaker: string;
   dialogueHindi: string;
   dialogueEnglish?: string;
@@ -61,6 +63,128 @@ export interface WebtoonFlatScene {
   actionDescription: string;
   estimatedDurationSec: number;
 }
+
+export const PAN_DIRECTION_OPTIONS: { value: WebtoonPanDirection; label: string }[] = [
+  { value: 'auto', label: 'Auto (Recommended)' },
+  { value: 'top-bottom', label: 'Pan Top → Bottom' },
+  { value: 'bottom-top', label: 'Pan Bottom → Top' },
+  { value: 'left-right', label: 'Pan Left → Right' },
+  { value: 'right-left', label: 'Pan Right → Left' },
+  { value: 'zoom-in', label: 'Zoom In' },
+  { value: 'zoom-out', label: 'Zoom Out' },
+  { value: 'none', label: 'Static (No Motion)' },
+];
+
+const PAN_ANIMATION_NAMES: Record<Exclude<WebtoonPanDirection, 'auto' | 'none'>, string> = {
+  'top-bottom': 'kb-top-bottom',
+  'bottom-top': 'kb-bottom-top',
+  'left-right': 'kb-left-right',
+  'right-left': 'kb-right-left',
+  'zoom-in': 'kb-zoom-in',
+  'zoom-out': 'kb-zoom-out',
+};
+
+const AUTO_PAN_CYCLE: Exclude<WebtoonPanDirection, 'auto' | 'none'>[] = [
+  'top-bottom',
+  'bottom-top',
+  'zoom-in',
+  'top-bottom',
+  'bottom-top',
+  'zoom-out',
+];
+
+/**
+ * Resolves the effective camera motion for a scene. 'auto' picks a direction based on
+ * the visible slice aspect ratio (tall strips pan vertically, wide slices pan
+ * horizontally, near-square frames zoom) alternating by scene index.
+ */
+export function resolvePanDirection(
+  scene: { panDirection?: WebtoonPanDirection; cropRect?: { topPct: number; heightPct: number } },
+  sceneIndex: number,
+  defaultDirection: WebtoonPanDirection = 'auto',
+  imageAspect?: number
+): WebtoonPanDirection {
+  const dir = scene.panDirection && scene.panDirection !== 'auto' ? scene.panDirection : defaultDirection;
+  if (dir !== 'auto') return dir;
+
+  // Visible slice aspect = image aspect divided by the cropped height fraction
+  const heightFrac = (scene.cropRect?.heightPct ?? 100) / 100;
+  const sliceAspect = imageAspect !== undefined && heightFrac > 0 ? imageAspect / heightFrac : undefined;
+
+  if (sliceAspect !== undefined) {
+    const stageAspect = 9 / 16; // vertical reel stage
+    if (sliceAspect < stageAspect * 0.85) {
+      return sceneIndex % 2 === 0 ? 'top-bottom' : 'bottom-top';
+    }
+    if (sliceAspect > stageAspect * 1.5) {
+      return sceneIndex % 2 === 0 ? 'left-right' : 'right-left';
+    }
+    return sceneIndex % 2 === 0 ? 'zoom-in' : 'zoom-out';
+  }
+
+  return AUTO_PAN_CYCLE[sceneIndex % AUTO_PAN_CYCLE.length];
+}
+
+interface KenBurnsImageProps {
+  src?: string;
+  alt?: string;
+  className?: string;
+  direction: WebtoonPanDirection;
+  durationSec: number;
+  playing?: boolean;
+  loop?: boolean;
+  restartKey?: string | number;
+  onAspect?: (aspect: number) => void;
+}
+
+/**
+ * Scene image with Ken Burns pan/zoom animation. Re-mounts (restarting the
+ * animation) whenever restartKey changes.
+ */
+const KenBurnsImage: React.FC<KenBurnsImageProps> = ({
+  src,
+  alt,
+  className,
+  direction,
+  durationSec,
+  playing = true,
+  loop = false,
+  restartKey,
+  onAspect,
+}) => {
+  const handleLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    if (onAspect && img.naturalHeight > 0) {
+      onAspect(img.naturalWidth / img.naturalHeight);
+    }
+  };
+
+  const animName = direction !== 'auto' && direction !== 'none' ? PAN_ANIMATION_NAMES[direction] : undefined;
+
+  return (
+    <img
+      key={restartKey}
+      src={src}
+      alt={alt}
+      className={className}
+      referrerPolicy="no-referrer"
+      onLoad={handleLoad}
+      style={
+        animName
+          ? {
+              animationName: animName,
+              animationDuration: `${Math.max(1.5, durationSec)}s`,
+              animationTimingFunction: 'ease-in-out',
+              animationFillMode: 'both',
+              animationIterationCount: loop ? 'infinite' : 1,
+              animationDirection: loop ? 'alternate' : 'normal',
+              animationPlayState: playing ? 'running' : 'paused',
+            }
+          : undefined
+      }
+    />
+  );
+};
 
 /**
  * Calculates recommended scene duration (in seconds) dynamically from subtitle dialogue
@@ -117,6 +241,7 @@ export function getFlatScenes(script: WebtoonScript | null, disableCropping = fa
           sceneTitle: inc.incidentTitle || `पैनल ${panel.panelIndex} - दृश्य ${iIdx + 1}`,
           pageUrl: panel.pageUrl,
           cropRect: disableCropping ? { topPct: 0, heightPct: 100 } : (inc.cropRect || { topPct: Math.min(iIdx * 25, 75), heightPct: 25 }),
+          panDirection: inc.panDirection || panel.panDirection,
           speaker: inc.speaker || panel.speaker || 'सूत्रधार',
           dialogueHindi: dHindi,
           dialogueEnglish: dEnglish,
@@ -148,6 +273,7 @@ export function getFlatScenes(script: WebtoonScript | null, disableCropping = fa
         sceneTitle: `पैनल ${panel.panelIndex} - संपूर्ण दृश्य`,
         pageUrl: panel.pageUrl,
         cropRect,
+        panDirection: panel.panDirection,
         speaker: panel.speaker || 'सूत्रधार',
         dialogueHindi: dHindi,
         dialogueEnglish: dEnglish,
@@ -170,6 +296,7 @@ export interface WebtoonVideoStudioModalProps {
   manga: Manga;
   chapter: Chapter;
   onClose: () => void;
+  isOpen?: boolean;
   isPageMode?: boolean;
   onNavigateToLibrary?: () => void;
   allChapters?: Chapter[];
@@ -181,6 +308,7 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
   manga,
   chapter,
   onClose,
+  isOpen = true,
   isPageMode = false,
   onNavigateToLibrary,
   allChapters = [],
@@ -217,6 +345,8 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
   const [subtitlePos, setSubtitlePos] = useState<'bottom' | 'center' | 'top'>('bottom');
   const [subtitleSize, setSubtitleSize] = useState<'small' | 'medium' | 'large'>('medium');
   const [subtitleColor, setSubtitleColor] = useState<'yellow' | 'white' | 'cyan'>('yellow');
+  const [defaultPanDirection, setDefaultPanDirection] = useState<WebtoonPanDirection>('auto');
+  const [imageAspects, setImageAspects] = useState<Record<string, number>>({});
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimeoutRef = useRef<any>(null);
 
@@ -820,6 +950,28 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
     }));
   };
 
+  const handleImageAspect = (pageUrl: string | undefined, aspect: number) => {
+    if (!pageUrl) return;
+    setImageAspects((prev) => (prev[pageUrl] ? prev : { ...prev, [pageUrl]: aspect }));
+  };
+
+  const handleSetScenePanDirection = (scene: WebtoonFlatScene, direction: WebtoonPanDirection) => {
+    if (!script) return;
+    const updatedPanels = [...script.panels];
+    const pIdx = scene.panelIndex - 1;
+    const panel = updatedPanels[pIdx];
+    if (panel) {
+      if (panel.incidents && scene.incidentIndex) {
+        const incs = [...panel.incidents];
+        incs[scene.incidentIndex - 1] = { ...incs[scene.incidentIndex - 1], panDirection: direction };
+        updatedPanels[pIdx] = { ...panel, incidents: incs };
+      } else {
+        updatedPanels[pIdx] = { ...panel, panDirection: direction };
+      }
+      saveScriptEdits({ ...script, panels: updatedPanels });
+    }
+  };
+
   const handleDuplicateScene = (scene: WebtoonFlatScene) => {
     if (!script) return;
     const updatedPanels = [...script.panels];
@@ -888,6 +1040,16 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
       updatedPanels[pIdx + 1] = temp;
       saveScriptEdits({ ...script, panels: updatedPanels });
     }
+  };
+
+  const handleDeletePanel = (panelIndex: number) => {
+    if (!script) return;
+    const updatedPanels = script.panels.filter((p) => p.panelIndex !== panelIndex);
+    saveScriptEdits({ ...script, panels: updatedPanels });
+    if (cropModalPanel?.panelIndex === panelIndex) {
+      setCropModalPanel(null);
+    }
+    triggerToast(`Panel #${panelIndex} deleted from script!`);
   };
 
   const handleDeleteScene = (sceneToDelete: WebtoonFlatScene) => {
@@ -1137,6 +1299,8 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  if (!isOpen) return null;
 
   return (
     <div
@@ -1610,6 +1774,23 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                         </select>
                       </div>
 
+                      {/* Camera Motion Default */}
+                      <div className="flex items-center gap-1.5 bg-zinc-950 px-2.5 py-1 rounded-xl border border-zinc-800 text-xs shadow-inner" title="Default camera pan/zoom motion applied to every scene (overridable per scene below)">
+                        <Move className="w-3.5 h-3.5 text-cyan-400" />
+                        <span className="text-zinc-500 font-bold">Motion:</span>
+                        <select
+                          value={defaultPanDirection}
+                          onChange={(e) => setDefaultPanDirection(e.target.value as WebtoonPanDirection)}
+                          className="bg-transparent text-cyan-300 font-bold focus:outline-none cursor-pointer"
+                        >
+                          {PAN_DIRECTION_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value} className="bg-zinc-900 text-white">
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
                       {/* Auto-Sync All Durations to Subtitles */}
                       <button
                         onClick={handleSyncAllDurationsToSubtitles}
@@ -1634,6 +1815,7 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                       const crop = scene.cropRect || { topPct: 0, heightPct: 25 };
                       const isExcluded = !!sceneExclusions[scene.sceneId];
                       const currentDuration = sceneDurations[scene.sceneId] || scene.estimatedDurationSec || 4;
+                      const scenePanDir = resolvePanDirection(scene, idx, defaultPanDirection, imageAspects[scene.pageUrl]);
 
                       return (
                         <div
@@ -1650,11 +1832,15 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                             {/* Scene Image Cropped Webtoon Frame Preview */}
                             <div className="w-full md:w-44 h-48 bg-zinc-950 rounded-xl overflow-hidden border border-amber-500/30 relative shrink-0 flex items-center justify-center">
                               {crop.heightPct === 100 || disableCropping ? (
-                                <img
+                                <KenBurnsImage
+                                  restartKey={`${scene.sceneId}-${scenePanDir}`}
                                   src={scene.pageUrl}
                                   alt={`Scene ${scene.globalIndex}`}
-                                  className="w-full h-full object-contain"
-                                  referrerPolicy="no-referrer"
+                                  className="w-full h-full object-cover"
+                                  direction={scenePanDir}
+                                  durationSec={Math.max(4, currentDuration)}
+                                  loop
+                                  onAspect={(a) => handleImageAspect(scene.pageUrl, a)}
                                 />
                               ) : (
                                 <div
@@ -1664,11 +1850,15 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                                     marginTop: `-${(crop.topPct / (crop.heightPct || 25)) * 100}%`,
                                   }}
                                 >
-                                  <img
+                                  <KenBurnsImage
+                                    restartKey={`${scene.sceneId}-${scenePanDir}`}
                                     src={scene.pageUrl}
                                     alt={`Scene ${scene.globalIndex}`}
-                                    className="w-full h-full object-cover transition-transform duration-500"
-                                    referrerPolicy="no-referrer"
+                                    className="w-full h-full object-cover"
+                                    direction={scenePanDir}
+                                    durationSec={Math.max(4, currentDuration)}
+                                    loop
+                                    onAspect={(a) => handleImageAspect(scene.pageUrl, a)}
                                   />
                                 </div>
                               )}
@@ -2019,7 +2209,7 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                               </div>
 
                               {/* Multi-Scene Crop & Controls */}
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs pt-1">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs pt-1">
                                 <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80 flex items-center justify-between">
                                   <span className="text-[10px] text-amber-400 font-semibold flex items-center gap-1">
                                     <Crop className="w-3 h-3" /> Scene Frame:
@@ -2059,6 +2249,24 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                                     <option value="0-50">Top Half (0-50%)</option>
                                     <option value="50-50">Bottom Half (50-100%)</option>
                                     <option value="0-100">Full Image (0-100%)</option>
+                                  </select>
+                                </div>
+
+                                <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80 flex items-center justify-between">
+                                  <span className="text-[10px] text-cyan-400 font-semibold flex items-center gap-1">
+                                    <Move className="w-3 h-3" /> Camera:
+                                  </span>
+                                  <select
+                                    value={scene.panDirection || 'auto'}
+                                    onChange={(e) => handleSetScenePanDirection(scene, e.target.value as WebtoonPanDirection)}
+                                    className="bg-zinc-900 border border-cyan-500/30 rounded px-1.5 py-0.5 text-xs text-cyan-200 focus:outline-none cursor-pointer"
+                                    title={`Camera motion for this scene (resolved: ${scenePanDir})`}
+                                  >
+                                    {PAN_DIRECTION_OPTIONS.map((o) => (
+                                      <option key={o.value} value={o.value} className="bg-zinc-900 text-white">
+                                        {o.label}
+                                      </option>
+                                    ))}
                                   </select>
                                 </div>
 
@@ -2170,6 +2378,23 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                         </select>
                       </div>
 
+                      {/* Camera Motion Default */}
+                      <div className="flex items-center gap-1.5 bg-zinc-950 px-2.5 py-1 rounded-xl border border-zinc-800 text-xs shadow-inner" title="Default camera pan/zoom motion applied to every scene (per-scene override in Scene Editor)">
+                        <Move className="w-3.5 h-3.5 text-cyan-400" />
+                        <span className="text-zinc-500 font-bold">Motion:</span>
+                        <select
+                          value={defaultPanDirection}
+                          onChange={(e) => setDefaultPanDirection(e.target.value as WebtoonPanDirection)}
+                          className="bg-transparent text-cyan-300 font-bold focus:outline-none cursor-pointer"
+                        >
+                          {PAN_DIRECTION_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value} className="bg-zinc-900 text-white">
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
                       {/* Hide Dialogues Under Image Toggle */}
                       <button
                         onClick={() => setHideSubtitlesVideo(!hideSubtitlesVideo)}
@@ -2233,15 +2458,32 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                         const currentScene = activeScenes[currentVideoPanelIdx] || activeScenes[0];
                         const crop = currentScene?.cropRect || { topPct: 0, heightPct: 100 };
                         const isFull = crop.heightPct === 100 || disableCropping;
+                        const panDir = currentScene
+                          ? resolvePanDirection(currentScene, currentVideoPanelIdx, defaultPanDirection, imageAspects[currentScene.pageUrl])
+                          : 'none';
+                        const autoSec = calculateDurationFromSubtitle(
+                          subtitleLanguage === 'English' && currentScene?.dialogueEnglish
+                            ? currentScene.dialogueEnglish
+                            : currentScene?.dialogueHindi,
+                          1.0
+                        );
+                        const sceneSec =
+                          ((currentScene && (sceneVoiceAudios[currentScene.sceneId]?.duration || sceneDurations[currentScene.sceneId] || currentScene.estimatedDurationSec)) ||
+                            autoSec ||
+                            4) / playbackSpeed;
 
                         return (
                           <div className="absolute inset-0 overflow-hidden flex items-center justify-center bg-black">
                             {isFull ? (
-                              <img
+                              <KenBurnsImage
+                                restartKey={`${currentScene?.sceneId}-${panDir}`}
                                 src={currentScene?.pageUrl}
                                 alt="Webtoon Video Scene"
-                                className="w-full h-full object-contain"
-                                referrerPolicy="no-referrer"
+                                className="w-full h-full object-cover"
+                                direction={panDir}
+                                durationSec={sceneSec}
+                                playing={isPlayingVideo}
+                                onAspect={(a) => handleImageAspect(currentScene?.pageUrl, a)}
                               />
                             ) : (
                               <div
@@ -2251,13 +2493,15 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                                   marginTop: `-${(crop.topPct / (crop.heightPct || 33)) * 100}%`,
                                 }}
                               >
-                                <img
+                                <KenBurnsImage
+                                  restartKey={`${currentScene?.sceneId}-${panDir}`}
                                   src={currentScene?.pageUrl}
                                   alt="Webtoon Video Scene"
-                                  className={`w-full h-full object-cover transition-transform duration-[4000ms] ease-out ${
-                                    isPlayingVideo ? 'scale-110 translate-y-2' : 'scale-100'
-                                  }`}
-                                  referrerPolicy="no-referrer"
+                                  className="w-full h-full object-cover"
+                                  direction={panDir}
+                                  durationSec={sceneSec}
+                                  playing={isPlayingVideo}
+                                  onAspect={(a) => handleImageAspect(currentScene?.pageUrl, a)}
                                 />
                               </div>
                             )}
@@ -2581,12 +2825,22 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setCropModalPanel(null)}
-                className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => handleDeletePanel(cropModalPanel.panelIndex)}
+                  className="px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="Delete this entire panel and all its scenes from the script"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Delete Panel</span>
+                </button>
+                <button
+                  onClick={() => setCropModalPanel(null)}
+                  className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* Middle Grid: Image Canvas Cropper vs 9:16 Reel Preview */}
@@ -2888,11 +3142,19 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                               marginTop: `-${(incCrop.topPct / (incCrop.heightPct || 25)) * 100}%`,
                             }}
                           >
-                            <img
+                            <KenBurnsImage
                               src={cropModalPanel.pageUrl}
                               alt="Inc"
                               className="w-full h-full object-cover"
-                              referrerPolicy="no-referrer"
+                              direction={resolvePanDirection(
+                                { panDirection: inc.panDirection || cropModalPanel.panDirection, cropRect: incCrop },
+                                iI,
+                                defaultPanDirection,
+                                imageAspects[cropModalPanel.pageUrl]
+                              )}
+                              durationSec={5}
+                              loop
+                              onAspect={(a) => handleImageAspect(cropModalPanel.pageUrl, a)}
                             />
                           </div>
                         </div>

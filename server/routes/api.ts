@@ -349,7 +349,7 @@ const handleUploadCbzOrChapters = async (req: any, res: any) => {
     if (!targetManga) {
       // Look for existing manga by title
       const allLibrary = await getMangas({ inLibrary: true });
-      targetManga = allLibrary.find((m) => m.title.toLowerCase().trim() === title.toLowerCase().trim());
+      targetManga = allLibrary.find((m:any) => m.title.toLowerCase().trim() === title.toLowerCase().trim());
     }
 
     let finalThumb = thumbnailUrl;
@@ -360,7 +360,7 @@ const handleUploadCbzOrChapters = async (req: any, res: any) => {
 
     if (!targetManga) {
       const allMangas = await getMangas();
-      const maxId = Math.max(1000, ...allMangas.map((m) => m.id || 0));
+      const maxId = Math.max(1000, ...allMangas.map((m:any) => m.id || 0));
       const nextId = maxId + 1;
 
       targetManga = await addManga({
@@ -455,7 +455,7 @@ const handleUploadCbzOrChapters = async (req: any, res: any) => {
 
     // Update chapter counts on manga
     const updatedChapters = await getChapters(targetManga.id);
-    const unreadCount = updatedChapters.filter((c) => !c.read).length;
+    const unreadCount = updatedChapters.filter((c:any) => !c.read).length;
 
     targetManga = await updateManga(targetManga.id, {
       chaptersCount: updatedChapters.length,
@@ -967,7 +967,7 @@ apiRouter.get('/backup/export', async (req, res) => {
 apiRouter.post('/backup/import', async (req, res) => {
   try {
     const result = await importBackupJSON(req.body);
-    res.json({ success: true, message: 'Backup successfully imported', ...result });
+    res.json({ message: 'Backup successfully imported', ...result });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

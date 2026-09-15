@@ -266,7 +266,7 @@ export const AiGeneratorView: React.FC<AiGeneratorViewProps> = ({
                       {manga.title}
                     </h4>
                     <div className="mt-2 pt-2 border-t border-zinc-900 flex items-center justify-between text-[11px] text-zinc-500">
-                      <span className="truncate">{manga.source || 'Local'}</span>
+                      <span className="truncate">{manga.sourceId || 'Local'}</span>
                       <ChevronRight className="w-3.5 h-3.5 text-zinc-400 group-hover:translate-x-0.5 transition-transform" />
                     </div>
                   </div>

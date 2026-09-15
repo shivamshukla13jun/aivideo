@@ -163,7 +163,7 @@ export async function exportBackupJSON(): Promise<StandardBackupJSON> {
     timestamp: new Date().toISOString(),
     sources,
     categories,
-    mangas: mangas.map((m) => formatMangaJSON(m, m.sourceId)),
+    mangas: mangas.map((m:any) => formatMangaJSON(m, m.sourceId)),
     chapters: allChapters,
     history: history || [],
   };

@@ -220,7 +220,10 @@ export const MangaDetailPage: React.FC<MangaDetailPageProps> = ({
       });
       if (res.ok) {
         const newTracker = await res.json();
-        setTrackers((prev) => [...prev.filter((t) => t.service !== trackerService), newTracker]);
+        setTrackers((prev) => [
+          ...prev.filter((t) => t.trackerService.toLowerCase() !== trackerService.toLowerCase()),
+          newTracker,
+        ]);
         showDownloadNotice(`Tracker synced to ${trackerService}`);
       }
     } catch (err) {

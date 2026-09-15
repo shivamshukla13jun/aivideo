@@ -15,8 +15,10 @@ import {
   Tag,
   Film,
   Trash2,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
-import { Manga } from '../types.js';
+import { Manga, Chapter } from '../types.js';
 
 interface UploadCbzModalProps {
   isOpen: boolean;
@@ -77,6 +79,13 @@ export const UploadCbzModal: React.FC<UploadCbzModalProps> = ({
 
   // Extracted Chapters
   const [extractedChapters, setExtractedChapters] = useState<ExtractedChapter[]>([]);
+  const [expandedChapterId, setExpandedChapterId] = useState<string | null>(null);
+
+  // Replace Entire Chapter CBZ (existing mode)
+  const [replaceExistingChapter, setReplaceExistingChapter] = useState<boolean>(false);
+  const [replaceChapterId, setReplaceChapterId] = useState<number | null>(null);
+  const [existingChapters, setExistingChapters] = useState<Chapter[]>([]);
+  const [isLoadingExistingChapters, setIsLoadingExistingChapters] = useState<boolean>(false);
   const [autoGenerateSubtitles, setAutoGenerateSubtitles] = useState(true);
   const [isProcessingFiles, setIsProcessingFiles] = useState(false);
   const [processStatus, setProcessStatus] = useState('');
@@ -260,12 +269,100 @@ export const UploadCbzModal: React.FC<UploadCbzModalProps> = ({
 
   const handleRemoveChapter = (id: string) => {
     setExtractedChapters((prev) => prev.filter((c) => c.id !== id));
+    setExpandedChapterId((prev) => (prev === id ? null : prev));
+  };
+
+  // Load chapters of the selected existing manga for the replace option
+  React.useEffect(() => {
+    if (mode !== 'existing' || !selectedMangaId) {
+      setExistingChapters([]);
+      setReplaceChapterId(null);
+      return;
+    }
+    let isMounted = true;
+    setIsLoadingExistingChapters(true);
+    fetch(`/api/v1/manga/${selectedMangaId}/chapters`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (!isMounted) return;
+        const list: Chapter[] = data || [];
+        setExistingChapters(list);
+        if (list.length > 0) setReplaceChapterId((prev) => prev ?? list[0].id);
+      })
+      .catch(() => {
+        if (isMounted) setExistingChapters([]);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingExistingChapters(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [mode, selectedMangaId]);
+
+  const handleRemovePage = (chapterId: string, pageIndex: number) => {
+    setExtractedChapters((prev) =>
+      prev
+        .map((c) =>
+          c.id === chapterId ? { ...c, pages: c.pages.filter((_, i) => i !== pageIndex) } : c
+        )
+        .filter((c) => c.pages.length > 0)
+    );
   };
 
   // Submit to DB API sequentially per chapter to ensure tiny request payloads
   const handleSubmit = async () => {
     if (extractedChapters.length === 0) {
       setError('Please upload at least one .CBZ or .ZIP manga chapter file.');
+      return;
+    }
+
+    // Replace Entire Chapter CBZ: overwrite an existing chapter's pages with the uploaded CBZ
+    if (mode === 'existing' && replaceExistingChapter) {
+      if (!selectedMangaId) {
+        setError('Please select an existing Manga from your library.');
+        return;
+      }
+      if (!replaceChapterId) {
+        setError('Please select which chapter to replace.');
+        return;
+      }
+
+      setIsSubmitting(true);
+      setError(null);
+      try {
+        const flatPages = extractedChapters.flatMap((c) => c.pages);
+        setProcessStatus(`Replacing entire chapter CBZ with ${flatPages.length} pages...`);
+
+        const res = await fetch(`/api/v1/chapter/${replaceChapterId}/replace-pages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pages: flatPages,
+            regenerateScript: autoGenerateSubtitles,
+          }),
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        if (!res.ok || !contentType.includes('application/json')) {
+          const textErr = await res.text();
+          console.error('[CBZ Replace Server Error]:', textErr.slice(0, 300));
+          throw new Error(
+            `Chapter replace failed (${res.status} ${res.statusText}). Payload size may be too large.`
+          );
+        }
+
+        const data = await res.json();
+        const found = existingMangas.find((m) => m.id === selectedMangaId);
+        if (found) onUploadSuccess(found);
+        setUploadSuccessData({ manga: found as Manga, chapter: data.chapter });
+      } catch (err: any) {
+        console.error('Failed to replace chapter CBZ:', err);
+        setError(err.message || 'An error occurred during chapter replace.');
+      } finally {
+        setIsSubmitting(false);
+        setProcessStatus('');
+      }
       return;
     }
 
@@ -518,6 +615,54 @@ export const UploadCbzModal: React.FC<UploadCbzModalProps> = ({
                     </option>
                   ))}
                 </select>
+
+                {/* Replace Entire Chapter CBZ Option */}
+                {selectedMangaId && (
+                  <div className="p-3 bg-zinc-950/80 border border-amber-500/25 rounded-xl space-y-2">
+                    <label className="flex items-start gap-2.5 text-xs cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={replaceExistingChapter}
+                        onChange={(e) => setReplaceExistingChapter(e.target.checked)}
+                        className="mt-0.5 w-4 h-4 rounded text-amber-500 focus:ring-amber-400 bg-zinc-800 border-zinc-700 cursor-pointer shrink-0"
+                      />
+                      <span>
+                        <span className="font-semibold text-amber-300 flex items-center gap-1.5">
+                          <FileArchive className="w-3.5 h-3.5 text-amber-400" />
+                          Replace Entire Chapter CBZ
+                        </span>
+                        <span className="block text-zinc-400 text-[11px] mt-0.5 leading-relaxed">
+                          Overwrite all pages of an existing chapter with the uploaded CBZ instead of adding a new chapter.
+                        </span>
+                      </span>
+                    </label>
+
+                    {replaceExistingChapter && (
+                      isLoadingExistingChapters ? (
+                        <div className="flex items-center gap-2 py-2 text-zinc-400 text-xs">
+                          <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
+                          <span>Loading chapters...</span>
+                        </div>
+                      ) : existingChapters.length === 0 ? (
+                        <p className="text-[11px] text-zinc-500 py-1">
+                          No chapters found for this manga yet — upload will be added as a new chapter.
+                        </p>
+                      ) : (
+                        <select
+                          value={replaceChapterId || ''}
+                          onChange={(e) => setReplaceChapterId(Number(e.target.value))}
+                          className="w-full bg-zinc-900 border border-amber-500/40 rounded-xl px-3 py-2 text-xs text-amber-200 focus:outline-none focus:border-amber-400"
+                        >
+                          {existingChapters.map((ch) => (
+                            <option key={ch.id} value={ch.id} className="bg-zinc-900 text-white">
+                              {ch.name} — {ch.pageCount || ch.pages?.length || 0} pages
+                            </option>
+                          ))}
+                        </select>
+                      )
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -575,46 +720,86 @@ export const UploadCbzModal: React.FC<UploadCbzModalProps> = ({
                   {extractedChapters.map((ch, idx) => (
                     <div
                       key={ch.id}
-                      className="bg-zinc-950 p-3 rounded-2xl border border-zinc-800 flex items-center justify-between gap-3"
+                      className="bg-zinc-950 p-3 rounded-2xl border border-zinc-800 space-y-2"
                     >
-                      <div className="flex items-center gap-3 overflow-hidden">
-                        {ch.pages[0] ? (
-                          <img
-                            src={ch.pages[0]}
-                            alt="Cover"
-                            className="w-10 h-14 object-cover rounded-lg border border-zinc-800 shrink-0"
-                          />
-                        ) : (
-                          <div className="w-10 h-14 bg-zinc-900 rounded-lg flex items-center justify-center text-zinc-600">
-                            <ImageIcon className="w-5 h-5" />
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 overflow-hidden">
+                          {ch.pages[0] ? (
+                            <img
+                              src={ch.pages[0]}
+                              alt="Cover"
+                              className="w-10 h-14 object-cover rounded-lg border border-zinc-800 shrink-0"
+                            />
+                          ) : (
+                            <div className="w-10 h-14 bg-zinc-900 rounded-lg flex items-center justify-center text-zinc-600">
+                              <ImageIcon className="w-5 h-5" />
+                            </div>
+                          )}
+                          <div className="overflow-hidden">
+                            <input
+                              type="text"
+                              value={ch.chapterName}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setExtractedChapters((prev) =>
+                                  prev.map((c) => (c.id === ch.id ? { ...c, chapterName: val } : c))
+                                );
+                              }}
+                              className="bg-transparent text-xs font-bold text-white focus:outline-none focus:border-b border-rose-500 w-full truncate"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedChapterId((prev) => (prev === ch.id ? null : ch.id))
+                              }
+                              className="text-[11px] text-zinc-400 hover:text-rose-300 flex items-center gap-1 cursor-pointer transition-colors"
+                              title="Show pages to delete individual panels"
+                            >
+                              {expandedChapterId === ch.id ? (
+                                <ChevronDown className="w-3 h-3" />
+                              ) : (
+                                <ChevronRight className="w-3 h-3" />
+                              )}
+                              {ch.pages.length} pages • File: {ch.fileName}
+                            </button>
                           </div>
-                        )}
-                        <div className="overflow-hidden">
-                          <input
-                            type="text"
-                            value={ch.chapterName}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setExtractedChapters((prev) =>
-                                prev.map((c) => (c.id === ch.id ? { ...c, chapterName: val } : c))
-                              );
-                            }}
-                            className="bg-transparent text-xs font-bold text-white focus:outline-none focus:border-b border-rose-500 w-full truncate"
-                          />
-                          <p className="text-[11px] text-zinc-400">
-                            {ch.pages.length} pages • File: {ch.fileName}
-                          </p>
                         </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveChapter(ch.id)}
+                          className="p-1.5 rounded-lg hover:bg-rose-500/20 text-zinc-400 hover:text-rose-400 transition-colors cursor-pointer shrink-0"
+                          title="Remove chapter"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveChapter(ch.id)}
-                        className="p-1.5 rounded-lg hover:bg-rose-500/20 text-zinc-400 hover:text-rose-400 transition-colors cursor-pointer"
-                        title="Remove chapter"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {/* Expandable per-page panel grid with delete buttons */}
+                      {expandedChapterId === ch.id && (
+                        <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5 max-h-44 overflow-y-auto pr-1 pt-2 border-t border-zinc-800/80">
+                          {ch.pages.map((pg, pIdx) => (
+                            <div key={pIdx} className="relative group">
+                              <img
+                                src={pg}
+                                alt={`Page ${pIdx + 1}`}
+                                className="w-full h-16 object-cover rounded-md border border-zinc-800 group-hover:border-rose-500/60 transition-colors"
+                              />
+                              <span className="absolute bottom-0.5 left-0.5 px-1 rounded bg-black/80 text-[9px] font-bold text-zinc-300">
+                                {pIdx + 1}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemovePage(ch.id, pIdx)}
+                                className="absolute -top-1 -right-1 p-0.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white shadow-md opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                                title={`Delete page ${pIdx + 1}`}
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -748,12 +933,12 @@ export const UploadCbzModal: React.FC<UploadCbzModalProps> = ({
                   {isSubmitting ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Saving to Database...</span>
+                      <span>{mode === 'existing' && replaceExistingChapter ? 'Replacing Chapter CBZ...' : 'Saving to Database...'}</span>
                     </>
                   ) : (
                     <>
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>Save Manga & Chapters to DB</span>
+                      <span>{mode === 'existing' && replaceExistingChapter ? 'Replace Entire Chapter CBZ' : 'Save Manga & Chapters to DB'}</span>
                     </>
                   )}
                 </button>

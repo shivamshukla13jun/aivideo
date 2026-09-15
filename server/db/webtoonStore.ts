@@ -91,7 +91,7 @@ export async function getAllSavedWebtoonScripts(): Promise<WebtoonScript[]> {
         .map((ch: any) => ch.script as WebtoonScript)
         .filter(Boolean)
         .sort(
-          (a, b) => new Date(b.generatedAt || 0).getTime() - new Date(a.generatedAt || 0).getTime()
+          (a:any, b:any) => new Date(b.generatedAt || 0).getTime() - new Date(a.generatedAt || 0).getTime()
         );
     }
   } catch (err) {
