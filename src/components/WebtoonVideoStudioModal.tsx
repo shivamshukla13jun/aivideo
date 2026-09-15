@@ -574,7 +574,7 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
   };
 
   // Scene-by-Scene Voice Recording State
-  const [sceneVoiceAudios, setSceneVoiceAudios] = useState<Record<string, { audioUrl: string; duration: number }>>({});
+  const [sceneVoiceAudios, setSceneVoiceAudios] = useState<Record<string, { audioUrl: string; duration: number; trimStart?: number; trimEnd?: number }>>({});
   const [recordingSceneId, setRecordingSceneId] = useState<string | null>(null);
   const [sceneRecordSeconds, setSceneRecordSeconds] = useState<number>(0);
   const [subtitleLanguage, setSubtitleLanguage] = useState<'English' | 'Hindi'>('English');
@@ -651,6 +651,64 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
       delete copy[sceneId];
       return copy;
     });
+  };
+
+  // Effective audio length for a scene honoring the user's trim window
+  const getSceneAudioSec = (sceneId: string): number | undefined => {
+    const rec = sceneVoiceAudios[sceneId];
+    if (!rec) return undefined;
+    const tStart = rec.trimStart || 0;
+    const sec = rec.trimEnd && rec.trimEnd > tStart ? rec.trimEnd - tStart : rec.duration - tStart;
+    return Math.max(0.5, Math.round(sec * 10) / 10);
+  };
+
+  // Upload a custom audio file for a scene — timing auto-syncs to the audio length
+  const handleSceneAudioUpload = (sceneId: string, file: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const audioUrl = reader.result as string;
+      const temp = new Audio(audioUrl);
+      temp.onloadedmetadata = () => {
+        const dur = Math.max(0.5, Math.round((temp.duration || 0) * 10) / 10);
+        setSceneVoiceAudios((prev) => ({ ...prev, [sceneId]: { audioUrl, duration: dur } }));
+        setSceneDurations((prev) => ({ ...prev, [sceneId]: Math.max(1, Math.ceil(dur)) }));
+        triggerToast(`Custom audio added (${dur}s) — scene timing synced!`);
+      };
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Trim scene audio — the scene's panel timing follows the trimmed window
+  const handleSceneAudioTrim = (sceneId: string, trimStart: number, trimEnd?: number) => {
+    setSceneVoiceAudios((prev) => {
+      const rec = prev[sceneId];
+      if (!rec) return prev;
+      return { ...prev, [sceneId]: { ...rec, trimStart, trimEnd } };
+    });
+    const rec = sceneVoiceAudios[sceneId];
+    if (!rec) return;
+    const sec = trimEnd && trimEnd > trimStart ? trimEnd - trimStart : rec.duration - trimStart;
+    setSceneDurations((prev) => ({ ...prev, [sceneId]: Math.max(1, Math.ceil(Math.max(0.5, sec))) }));
+  };
+
+  // Play a scene's audio honoring its trim window
+  const playSceneAudio = (sceneId: string, url: string) => {
+    stopAudio();
+    const rec = sceneVoiceAudios[sceneId];
+    const audio = new Audio(url);
+    const tStart = rec?.trimStart || 0;
+    const tEnd = rec?.trimEnd;
+    if (tEnd && tEnd > tStart) {
+      audio.ontimeupdate = () => {
+        if (audio.currentTime >= tEnd) audio.pause();
+      };
+    }
+    audio.addEventListener('loadedmetadata', () => {
+      if (tStart > 0) audio.currentTime = tStart;
+    });
+    audioRef.current = audio;
+    audio.play().catch(() => {});
   };
 
   const handleExtractVisionIncidents = async (panelIdx: number, imageUrl: string) => {
@@ -1240,25 +1298,24 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
     const scene = activeScenes[idx];
     const dialogueText = subtitleLanguage === 'English' && scene.dialogueEnglish ? scene.dialogueEnglish : scene.dialogueHindi;
 
-    // Check for user-recorded voice for this specific scene
+    // Check for user-recorded/custom audio for this specific scene (with trim window)
     const recordedVoice = sceneVoiceAudios[scene.sceneId]?.audioUrl || scene.userAudioUrl;
 
     if (recordedVoice) {
-      stopAudio();
       setPlayingPanelIndex(idx);
-      const audio = new Audio(recordedVoice);
-      audio.playbackRate = playbackSpeed;
-      audioRef.current = audio;
-      audio.play().catch((err) => console.warn('Recorded voice playback error:', err));
-      audio.onended = () => setPlayingPanelIndex(null);
+      playSceneAudio(scene.sceneId, recordedVoice);
+      if (audioRef.current) {
+        audioRef.current.playbackRate = playbackSpeed;
+        audioRef.current.onended = () => setPlayingPanelIndex(null);
+      }
     } else {
       // Fallback to spoken narration with speed control
       playPanelAudio({ dialogueHindi: dialogueText } as any, idx, playbackSpeed);
     }
 
-    // Schedule next scene based on custom recorded voice duration or subtitle-based estimated duration & speed
+    // Schedule next scene based on trimmed custom audio duration or subtitle-based estimated duration & speed
     const autoSec = calculateDurationFromSubtitle(dialogueText, 1.0);
-    const customSec = sceneVoiceAudios[scene.sceneId]?.duration || sceneDurations[scene.sceneId] || scene.estimatedDurationSec || autoSec || 4;
+    const customSec = getSceneAudioSec(scene.sceneId) || sceneDurations[scene.sceneId] || scene.estimatedDurationSec || autoSec || 4;
     const durationMs = Math.max(800, (customSec * 1000) / playbackSpeed);
     if (videoTimerRef.current) clearTimeout(videoTimerRef.current);
 
@@ -1935,17 +1992,68 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                                   {/* Play Recorded Voice Button */}
                                   {(sceneVoiceAudios[scene.sceneId]?.audioUrl || scene.userAudioUrl) && (
                                     <button
-                                      onClick={() => {
-                                        stopAudio();
-                                        const audio = new Audio(sceneVoiceAudios[scene.sceneId]?.audioUrl || scene.userAudioUrl);
-                                        audio.play();
-                                      }}
+                                      onClick={() => playSceneAudio(scene.sceneId, sceneVoiceAudios[scene.sceneId]?.audioUrl || scene.userAudioUrl!)}
                                       className="px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
                                       title="Listen to recorded voice narration"
                                     >
                                       <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
                                       <span>Play Voice</span>
                                     </button>
+                                  )}
+
+                                  {/* Upload Custom Audio — timing syncs to audio length */}
+                                  <label
+                                    className="px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                                    title="Upload a custom audio file — panel timing auto-syncs to audio length"
+                                  >
+                                    <Upload className="w-3.5 h-3.5 text-sky-400" />
+                                    <span>{sceneVoiceAudios[scene.sceneId] ? 'Replace Audio' : 'Upload Audio'}</span>
+                                    <input
+                                      type="file"
+                                      accept="audio/*"
+                                      className="hidden"
+                                      onChange={(e) => {
+                                        handleSceneAudioUpload(scene.sceneId, e.target.files?.[0] || null);
+                                        e.target.value = '';
+                                      }}
+                                    />
+                                  </label>
+
+                                  {/* Audio Trim + Remove */}
+                                  {sceneVoiceAudios[scene.sceneId] && (
+                                    <div
+                                      className="flex items-center gap-1 bg-zinc-950 border border-zinc-800 rounded-lg px-1.5 py-0.5"
+                                      title="Trim audio (sec) — scene duration follows the trimmed window"
+                                    >
+                                      <Scissors className="w-3 h-3 text-zinc-500" />
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        step={0.1}
+                                        value={sceneVoiceAudios[scene.sceneId].trimStart ?? 0}
+                                        onChange={(e) => handleSceneAudioTrim(scene.sceneId, Math.max(0, Number(e.target.value) || 0), sceneVoiceAudios[scene.sceneId]?.trimEnd)}
+                                        className="w-12 bg-zinc-900 border border-zinc-800 rounded px-1 py-0.5 text-[10px] text-amber-300 font-mono focus:outline-none"
+                                        title="Trim start (sec)"
+                                      />
+                                      <span className="text-[9px] text-zinc-500">–</span>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        step={0.1}
+                                        value={sceneVoiceAudios[scene.sceneId].trimEnd ?? sceneVoiceAudios[scene.sceneId].duration}
+                                        onChange={(e) => handleSceneAudioTrim(scene.sceneId, sceneVoiceAudios[scene.sceneId]?.trimStart || 0, Number(e.target.value) || undefined)}
+                                        className="w-12 bg-zinc-900 border border-zinc-800 rounded px-1 py-0.5 text-[10px] text-amber-300 font-mono focus:outline-none"
+                                        title="Trim end (sec)"
+                                      />
+                                      <span className="text-[9px] text-zinc-500">s</span>
+                                      <button
+                                        onClick={() => deleteSceneVoiceAudio(scene.sceneId)}
+                                        className="p-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-rose-400 transition-colors"
+                                        title="Remove scene audio"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
                                   )}
 
                                   {/* Reorder Scene Up / Down */}
@@ -2468,7 +2576,7 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                           1.0
                         );
                         const sceneSec =
-                          ((currentScene && (sceneVoiceAudios[currentScene.sceneId]?.duration || sceneDurations[currentScene.sceneId] || currentScene.estimatedDurationSec)) ||
+                          ((currentScene && (getSceneAudioSec(currentScene.sceneId) || sceneDurations[currentScene.sceneId] || currentScene.estimatedDurationSec)) ||
                             autoSec ||
                             4) / playbackSpeed;
 
@@ -2608,6 +2716,112 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                           ></div>
                         </div>
                       </div>
+
+                      {/* Per-Scene Audio Editor — upload, trim & timing decide this panel's screen time */}
+                      {(() => {
+                        const cur = activeScenes[currentVideoPanelIdx] || activeScenes[0];
+                        if (!cur) return null;
+                        const rec = sceneVoiceAudios[cur.sceneId];
+                        return (
+                          <div className="w-full max-w-md mx-auto mt-3 p-3 rounded-2xl bg-zinc-900/70 border border-zinc-800 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                                <Music className="w-3.5 h-3.5 text-rose-400" />
+                                Scene {currentVideoPanelIdx + 1} Audio — sets panel timing
+                              </span>
+                              {rec && (
+                                <span className="text-[10px] font-mono text-emerald-300">
+                                  {getSceneAudioSec(cur.sceneId)}s{rec.trimEnd && rec.trimEnd > (rec.trimStart || 0) ? ' (trimmed)' : ''}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <label
+                                className="px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                                title="Upload custom audio — panel timing auto-syncs to audio length"
+                              >
+                                <Upload className="w-3.5 h-3.5 text-sky-400" />
+                                <span>{rec ? 'Replace Audio' : 'Upload Audio'}</span>
+                                <input
+                                  type="file"
+                                  accept="audio/*"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    handleSceneAudioUpload(cur.sceneId, e.target.files?.[0] || null);
+                                    e.target.value = '';
+                                  }}
+                                />
+                              </label>
+
+                              {recordingSceneId === cur.sceneId ? (
+                                <button
+                                  onClick={stopSceneVoiceRecording}
+                                  className="px-2.5 py-1 rounded-lg bg-rose-600 animate-pulse text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                                  title="Stop Voice Recording"
+                                >
+                                  <Square className="w-3.5 h-3.5 fill-current" />
+                                  <span>Stop ({sceneRecordSeconds}s)</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => startSceneVoiceRecording(cur.sceneId)}
+                                  className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                                  title="Record voice for this scene"
+                                >
+                                  <Mic className="w-3.5 h-3.5 text-rose-400" />
+                                  <span>Record</span>
+                                </button>
+                              )}
+
+                              {rec && (
+                                <>
+                                  <button
+                                    onClick={() => playSceneAudio(cur.sceneId, rec.audioUrl)}
+                                    className="px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                                    title="Preview trimmed audio"
+                                  >
+                                    <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                                    <span>Play</span>
+                                  </button>
+                                  <div
+                                    className="flex items-center gap-1 bg-zinc-950 border border-zinc-800 rounded-lg px-1.5 py-0.5"
+                                    title="Trim audio (sec) — panel timing follows the trimmed window"
+                                  >
+                                    <Scissors className="w-3 h-3 text-zinc-500" />
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      step={0.1}
+                                      value={rec.trimStart ?? 0}
+                                      onChange={(e) => handleSceneAudioTrim(cur.sceneId, Math.max(0, Number(e.target.value) || 0), rec.trimEnd)}
+                                      className="w-12 bg-zinc-900 border border-zinc-800 rounded px-1 py-0.5 text-[10px] text-amber-300 font-mono focus:outline-none"
+                                      title="Trim start (sec)"
+                                    />
+                                    <span className="text-[9px] text-zinc-500">–</span>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      step={0.1}
+                                      value={rec.trimEnd ?? rec.duration}
+                                      onChange={(e) => handleSceneAudioTrim(cur.sceneId, rec.trimStart || 0, Number(e.target.value) || undefined)}
+                                      className="w-12 bg-zinc-900 border border-zinc-800 rounded px-1 py-0.5 text-[10px] text-amber-300 font-mono focus:outline-none"
+                                      title="Trim end (sec)"
+                                    />
+                                    <span className="text-[9px] text-zinc-500">s</span>
+                                    <button
+                                      onClick={() => deleteSceneVoiceAudio(cur.sceneId)}
+                                      className="p-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-rose-400 transition-colors"
+                                      title="Remove scene audio"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   ) : (
                     <div className="p-8 text-center text-zinc-400 bg-zinc-900/50 rounded-2xl border border-zinc-800">

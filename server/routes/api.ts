@@ -61,6 +61,7 @@ import {
 } from '../db/webtoonStore.js';
 import {
   generateWebtoonScript,
+  generateFallbackWebtoonScript,
   extractPanelSubtitleFromImage,
   extractPanelIncidentsFromImage,
 } from '../services/geminiService.js';
@@ -431,17 +432,29 @@ const handleUploadCbzOrChapters = async (req: any, res: any) => {
 
       const chId = Math.floor(Date.now() + Math.random() * 1000000);
 
-      // Auto-generate default Narrator Point-of-View subtitles when chapter is uploaded
+      // Build the panel script for every uploaded page. AI subtitles are only
+      // generated when explicitly requested — otherwise a no-AI basic script is
+      // created so every image becomes an editable panel.
       let generatedScript = null;
-      if (req.body.autoGenerateSubtitles !== false && hostedPages.length > 0) {
+      if (hostedPages.length > 0) {
         try {
-          generatedScript = await generateWebtoonScript({
-            mangaId: targetManga.id,
-            chapterId: chId,
-            mangaTitle: targetManga.title,
-            chapterName: chName,
-            pages: hostedPages,
-          });
+          if (req.body.autoGenerateSubtitles === true) {
+            generatedScript = await generateWebtoonScript({
+              mangaId: targetManga.id,
+              chapterId: chId,
+              mangaTitle: targetManga.title,
+              chapterName: chName,
+              pages: hostedPages,
+            });
+          } else {
+            generatedScript = generateFallbackWebtoonScript({
+              mangaId: targetManga.id,
+              chapterId: chId,
+              mangaTitle: targetManga.title,
+              chapterName: chName,
+              pages: hostedPages,
+            });
+          }
         } catch (subErr) {
           console.warn('[API Chapter Upload] Subtitle generation notice:', subErr);
         }
@@ -631,6 +644,45 @@ apiRouter.post('/chapter/:chapterId/replace-pages', async (req, res) => {
         await saveWebtoonScript(generatedScript);
       } catch (subErr) {
         console.warn('[Replace Pages] Subtitle generation notice:', subErr);
+      }
+    } else {
+      // No AI regen requested — preserve the user's existing script edits and just
+      // remap panel images to the new pages; create a basic no-AI script if none exists.
+      try {
+        const existing = await getWebtoonScript(chapter.mangaId, chapter.id);
+        if (existing && Array.isArray(existing.panels) && existing.panels.length > 0) {
+          existing.panels = existing.panels.map((p: any, i: number) => ({
+            ...p,
+            pageUrl: pages[i] || pages[pages.length - 1] || p.pageUrl,
+          }));
+          // New pages beyond the existing panel list get their own basic panels
+          for (let i = existing.panels.length; i < pages.length; i++) {
+            existing.panels.push({
+              panelIndex: i + 1,
+              pageUrl: pages[i],
+              dialogueHindi: `पृष्ठ ${i + 1} का दृश्य...`,
+              dialogueEnglish: `Page ${i + 1} scene...`,
+              speaker: 'सूत्रधार',
+              actionDescription: 'Vertical webtoon camera scroll',
+              bgmSuggestion: 'Cinematic BGM',
+              sfx: 'सरसराहट',
+              estimatedDurationSec: 4,
+            });
+          }
+          existing.generatedAt = new Date().toISOString();
+          await saveWebtoonScript(existing);
+        } else {
+          const basic = generateFallbackWebtoonScript({
+            mangaId: chapter.mangaId,
+            chapterId: chapter.id,
+            mangaTitle: manga?.title || 'Webtoon',
+            chapterName: chapter.name || `Chapter ${chapter.chapterNumber}`,
+            pages,
+          });
+          await saveWebtoonScript(basic);
+        }
+      } catch (subErr) {
+        console.warn('[Replace Pages] Script remap notice:', subErr);
       }
     }
 

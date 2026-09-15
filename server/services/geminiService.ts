@@ -747,7 +747,7 @@ Return VALID JSON ONLY:
   };
 }
 
-function generateFallbackWebtoonScript(params: {
+export function generateFallbackWebtoonScript(params: {
   mangaId: number;
   chapterId: number;
   mangaTitle: string;
