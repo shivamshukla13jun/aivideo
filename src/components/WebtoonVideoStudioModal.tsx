@@ -237,7 +237,7 @@ export function getFlatScenes(script: WebtoonScript | null, disableCropping = fa
           sceneId: `p${panel.panelIndex}_i${inc.incidentIndex || iIdx + 1}`,
           globalIndex: globalCount,
           panelIndex: panel.panelIndex,
-          incidentIndex: inc.incidentIndex || iIdx + 1,
+          incidentIndex: iIdx + 1,
           sceneTitle: inc.incidentTitle || `पैनल ${panel.panelIndex} - दृश्य ${iIdx + 1}`,
           pageUrl: panel.pageUrl,
           cropRect: disableCropping ? { topPct: 0, heightPct: 100 } : (inc.cropRect || { topPct: Math.min(iIdx * 25, 75), heightPct: 25 }),
@@ -707,8 +707,8 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
       if (res.ok) {
         const data = await res.json();
         const updatedPanels = [...script.panels];
-        const pIdx = scene.panelIndex - 1;
-        const panel = updatedPanels[pIdx];
+        const pIdx = updatedPanels.findIndex((p) => p.panelIndex === scene.panelIndex);
+        const panel = pIdx !== -1 ? updatedPanels[pIdx] : undefined;
         if (panel) {
           if (panel.incidents && scene.incidentIndex) {
             const incs = [...panel.incidents];
@@ -958,7 +958,7 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
   const handleSetScenePanDirection = (scene: WebtoonFlatScene, direction: WebtoonPanDirection) => {
     if (!script) return;
     const updatedPanels = [...script.panels];
-    const pIdx = scene.panelIndex - 1;
+    const pIdx = updatedPanels.findIndex((p) => p.panelIndex === scene.panelIndex);
     const panel = updatedPanels[pIdx];
     if (panel) {
       if (panel.incidents && scene.incidentIndex) {
@@ -2104,7 +2104,7 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                                     onChange={(e) => {
                                       const val = e.target.value;
                                       const updatedPanels = [...script.panels];
-                                      const pIdx = scene.panelIndex - 1;
+                                      const pIdx = updatedPanels.findIndex((p) => p.panelIndex === scene.panelIndex);
                                       const panel = updatedPanels[pIdx];
                                       if (panel) {
                                         if (panel.incidents && scene.incidentIndex) {
@@ -2131,7 +2131,7 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                                     onChange={(e) => {
                                       const val = e.target.value;
                                       const updatedPanels = [...script.panels];
-                                      const pIdx = scene.panelIndex - 1;
+                                      const pIdx = updatedPanels.findIndex((p) => p.panelIndex === scene.panelIndex);
                                       const panel = updatedPanels[pIdx];
                                       if (panel) {
                                         if (panel.incidents && scene.incidentIndex) {
@@ -2161,7 +2161,7 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                                     onChange={(e) => {
                                       const val = e.target.value;
                                       const updatedPanels = [...script.panels];
-                                      const pIdx = scene.panelIndex - 1;
+                                      const pIdx = updatedPanels.findIndex((p) => p.panelIndex === scene.panelIndex);
                                       const panel = updatedPanels[pIdx];
                                       if (panel) {
                                         if (panel.incidents && scene.incidentIndex) {
@@ -2189,7 +2189,7 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                                     onChange={(e) => {
                                       const val = e.target.value;
                                       const updatedPanels = [...script.panels];
-                                      const pIdx = scene.panelIndex - 1;
+                                      const pIdx = updatedPanels.findIndex((p) => p.panelIndex === scene.panelIndex);
                                       const panel = updatedPanels[pIdx];
                                       if (panel) {
                                         if (panel.incidents && scene.incidentIndex) {
@@ -2219,7 +2219,7 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                                     onChange={(e) => {
                                       const [top, height] = e.target.value.split('-').map(Number);
                                       const updatedPanels = [...script.panels];
-                                      const pIdx = scene.panelIndex - 1;
+                                      const pIdx = updatedPanels.findIndex((p) => p.panelIndex === scene.panelIndex);
                                       const panel = updatedPanels[pIdx];
                                       if (panel) {
                                         if (panel.incidents && scene.incidentIndex) {
@@ -3165,7 +3165,7 @@ export const WebtoonVideoStudioModal: React.FC<WebtoonVideoStudioModalProps> = (
                               {inc.incidentTitle || `Scene #${iI + 1}`}
                             </span>
                             <button
-                              onClick={() => handleDeleteIncidentFromModal(inc.incidentIndex || iI + 1)}
+                              onClick={() => handleDeleteIncidentFromModal(iI + 1)}
                               className="p-1 rounded bg-rose-500/10 text-rose-400 hover:bg-rose-600 hover:text-white transition-all cursor-pointer"
                               title="Delete Scene"
                             >

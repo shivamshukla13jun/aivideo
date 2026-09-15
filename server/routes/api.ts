@@ -38,6 +38,7 @@ import {
 import {
   uploadImageToCloudinary,
   uploadBatchImagesToCloudinary,
+  deleteImagesFromCloudinary,
   getCloudinaryStatus,
 } from '../services/cloudinaryService.js';
 import { exportBackupJSON, importBackupJSON } from '../services/jsonFormatterService.js';
@@ -292,6 +293,21 @@ apiRouter.delete('/manga/:mangaId/library', async (req, res) => {
 apiRouter.delete('/manga/:mangaId', async (req, res) => {
   try {
     const mangaId = parseInt(req.params.mangaId, 10);
+
+    // Delete all Cloudinary-hosted page/cover images before removing DB records
+    try {
+      const manga = await getMangaById(mangaId);
+      const chapters = await getChapters(mangaId);
+      const urls: (string | undefined)[] = [manga?.thumbnailUrl];
+      for (const ch of chapters) {
+        urls.push(...(ch.pages || []), ...((ch as any).originalPages || []));
+      }
+      const deleted = await deleteImagesFromCloudinary(urls);
+      if (deleted > 0) console.log(`[Cloudinary] Deleted ${deleted} images for manga ${mangaId}`);
+    } catch (cErr: any) {
+      console.warn('[API Delete Manga] Cloudinary cleanup warning:', cErr.message || cErr);
+    }
+
     const result = await deleteManga(mangaId);
     res.json(result);
   } catch (err: any) {
@@ -662,6 +678,19 @@ apiRouter.post('/chapter/batch', async (req, res) => {
 apiRouter.delete('/chapter/:chapterId', async (req, res) => {
   try {
     const chapterId = parseInt(req.params.chapterId, 10);
+
+    // Delete Cloudinary-hosted page images before removing the DB record
+    try {
+      const chapter = await getChapterById(chapterId);
+      if (chapter) {
+        const urls = [...(chapter.pages || []), ...((chapter as any).originalPages || [])];
+        const deleted = await deleteImagesFromCloudinary(urls);
+        if (deleted > 0) console.log(`[Cloudinary] Deleted ${deleted} images for chapter ${chapterId}`);
+      }
+    } catch (cErr: any) {
+      console.warn('[API Delete Chapter] Cloudinary cleanup warning:', cErr.message || cErr);
+    }
+
     const result = await deleteChapter(chapterId);
     res.json(result);
   } catch (err: any) {
@@ -677,6 +706,19 @@ apiRouter.post('/chapter/delete-batch', async (req, res) => {
     if (!Array.isArray(chapterIds) || chapterIds.length === 0) {
       return res.status(400).json({ error: 'chapterIds array is required' });
     }
+
+    // Delete Cloudinary-hosted page images for all chapters
+    try {
+      const chapters = await Promise.all(chapterIds.map((id: number) => getChapterById(Number(id))));
+      const urls = chapters.flatMap((ch) =>
+        ch ? [...(ch.pages || []), ...((ch as any).originalPages || [])] : []
+      );
+      const deleted = await deleteImagesFromCloudinary(urls);
+      if (deleted > 0) console.log(`[Cloudinary] Deleted ${deleted} images for ${chapterIds.length} chapters`);
+    } catch (cErr: any) {
+      console.warn('[API Batch Delete Chapters] Cloudinary cleanup warning:', cErr.message || cErr);
+    }
+
     const result = await deleteChaptersBatch(chapterIds);
     res.json(result);
   } catch (err: any) {
@@ -691,6 +733,19 @@ apiRouter.delete('/chapter/batch', async (req, res) => {
     if (!Array.isArray(chapterIds) || chapterIds.length === 0) {
       return res.status(400).json({ error: 'chapterIds array is required' });
     }
+
+    // Delete Cloudinary-hosted page images for all chapters
+    try {
+      const chapters = await Promise.all(chapterIds.map((id: number) => getChapterById(Number(id))));
+      const urls = chapters.flatMap((ch) =>
+        ch ? [...(ch.pages || []), ...((ch as any).originalPages || [])] : []
+      );
+      const deleted = await deleteImagesFromCloudinary(urls);
+      if (deleted > 0) console.log(`[Cloudinary] Deleted ${deleted} images for ${chapterIds.length} chapters`);
+    } catch (cErr: any) {
+      console.warn('[API Batch Delete Chapters] Cloudinary cleanup warning:', cErr.message || cErr);
+    }
+
     const result = await deleteChaptersBatch(chapterIds);
     res.json(result);
   } catch (err: any) {

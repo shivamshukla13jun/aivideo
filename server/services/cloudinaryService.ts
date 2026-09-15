@@ -129,3 +129,45 @@ export async function uploadBatchImagesToCloudinary(
 
   return results;
 }
+
+/**
+ * Extract the Cloudinary public_id from a delivery URL.
+ * e.g. https://res.cloudinary.com/<cloud>/image/upload/v1234/suwayomi_manga/abc.jpg
+ *      -> suwayomi_manga/abc
+ */
+export function extractCloudinaryPublicId(url: string): string | null {
+  if (!url || typeof url !== 'string' || !url.includes('res.cloudinary.com')) return null;
+  const clean = url.split(/[?#]/)[0];
+  const match = clean.match(/\/upload\/(?:v\d+\/)?(.+?)(?:\.[a-zA-Z0-9]{2,5})?$/);
+  if (!match || !match[1]) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+/**
+ * Delete a batch of images from Cloudinary by their delivery URLs.
+ * Non-Cloudinary URLs are skipped. Returns the number of images deleted.
+ */
+export async function deleteImagesFromCloudinary(urls: (string | undefined)[]): Promise<number> {
+  if (!urls || urls.length === 0 || !isCloudinaryConfigured()) return 0;
+  const publicIds = urls
+    .map((u) => (u ? extractCloudinaryPublicId(u) : null))
+    .filter((id): id is string => Boolean(id));
+  if (publicIds.length === 0) return 0;
+
+  let deleted = 0;
+  await Promise.all(
+    publicIds.map(async (publicId) => {
+      try {
+        const res = await cloudinary.uploader.destroy(publicId, { resource_type: 'image' });
+        if (res.result === 'ok' || res.result === 'not found') deleted++;
+      } catch (err: any) {
+        console.warn(`[Cloudinary Service] Failed to delete image ${publicId}:`, err.message || err);
+      }
+    })
+  );
+  return deleted;
+}
