@@ -331,10 +331,73 @@ apiRouter.put('/manga/:mangaId/categories', async (req, res) => {
 
 // ========================
 // CBZ / Local Manga File & Chapter Upload Endpoint
+// 
+// ========================
+// CBZ / Local Manga File & Chapter Upload Endpoint
+// ========================
+
+// Preserve original page filename + sorting information
+function getPageMetadata(source: string, index: number) {
+  let fileName = '';
+
+  try {
+    if (source.startsWith('http://') || source.startsWith('https://')) {
+      const url = new URL(source);
+
+      fileName = decodeURIComponent(
+        url.pathname.split('/').pop() || ''
+      );
+    } else if (source.startsWith('file://')) {
+      fileName = decodeURIComponent(
+        source.split('/').pop() || ''
+      );
+    }
+  } catch {
+    // Ignore invalid URL/path
+  }
+
+  // Supports names such as:
+  // 001__001.jpg
+  // 001__002.jpg
+  // 002__001.jpg
+  const match = fileName.match(
+    /^(\d+)__(\d+)\.([a-zA-Z0-9]+)$/
+  );
+
+  const extension =
+    match?.[3] ||
+    fileName.match(/\.([a-zA-Z0-9]+)$/)?.[1] ||
+    'jpg';
+
+  return {
+    index: index + 1,
+
+    // Keep original filename if available.
+    // Otherwise generate Suwayomi-friendly ordered filename.
+    name:
+      fileName ||
+      `001__${String(index + 1).padStart(3, '0')}.${extension}`,
+
+    groupIndex: match
+      ? Number(match[1])
+      : 1,
+
+    pageIndex: match
+      ? Number(match[2])
+      : index + 1,
+  };
+}
+
+
+// ========================
+// CBZ / Local Manga File & Chapter Upload Endpoint
 // ========================
 const handleUploadCbzOrChapters = async (req: any, res: any) => {
   try {
-    const rawMangaId = req.params.mangaId ? parseInt(req.params.mangaId, 10) : req.body.mangaId;
+    const rawMangaId = req.params.mangaId
+      ? parseInt(req.params.mangaId, 10)
+      : req.body.mangaId;
+
     const {
       author,
       artist,
@@ -344,165 +407,453 @@ const handleUploadCbzOrChapters = async (req: any, res: any) => {
       thumbnailUrl,
       chapters,
     } = req.body;
+
     let { title } = req.body;
 
     let targetManga: any = null;
+
+    // -----------------------------------------
+    // Find manga by ID
+    // -----------------------------------------
     if (rawMangaId) {
       targetManga = await getMangaById(Number(rawMangaId));
     }
 
+    // -----------------------------------------
+    // Validate title
+    // -----------------------------------------
     if (!title || !title.trim()) {
       if (targetManga) {
         title = targetManga.title;
       } else {
-        return res.status(400).json({ error: 'Manga title is required for new manga upload.' });
+        return res.status(400).json({
+          error: 'Manga title is required for new manga upload.',
+        });
       }
     }
 
-    if (!chapters || !Array.isArray(chapters) || chapters.length === 0) {
-      return res.status(400).json({ error: 'At least one chapter with pages is required.' });
+    // -----------------------------------------
+    // Validate chapters
+    // -----------------------------------------
+    if (
+      !chapters ||
+      !Array.isArray(chapters) ||
+      chapters.length === 0
+    ) {
+      return res.status(400).json({
+        error: 'At least one chapter with pages is required.',
+      });
     }
 
+    // -----------------------------------------
+    // Find existing manga by title
+    // -----------------------------------------
     if (!targetManga) {
-      // Look for existing manga by title
-      const allLibrary = await getMangas({ inLibrary: true });
-      targetManga = allLibrary.find((m:any) => m.title.toLowerCase().trim() === title.toLowerCase().trim());
+      const allLibrary = await getMangas({
+        inLibrary: true,
+      });
+
+      targetManga = allLibrary.find(
+        (m: any) =>
+          m.title.toLowerCase().trim() ===
+          title.toLowerCase().trim()
+      );
     }
 
+    // -----------------------------------------
+    // Upload thumbnail to Cloudinary
+    // -----------------------------------------
     let finalThumb = thumbnailUrl;
-    if (finalThumb && (finalThumb.startsWith('data:') || finalThumb.startsWith('file:'))) {
-      const uploadRes = await uploadImageToCloudinary(finalThumb, 'suwayomi_manga/covers');
+
+    if (
+      finalThumb &&
+      (
+        finalThumb.startsWith('data:') ||
+        finalThumb.startsWith('file:')
+      )
+    ) {
+      const uploadRes = await uploadImageToCloudinary(
+        finalThumb,
+        'suwayomi_manga/covers'
+      );
+
       finalThumb = uploadRes.url;
     }
 
+    // -----------------------------------------
+    // Create new manga
+    // -----------------------------------------
     if (!targetManga) {
       const allMangas = await getMangas();
-      const maxId = Math.max(1000, ...allMangas.map((m:any) => m.id || 0));
+
+      const maxId = Math.max(
+        1000,
+        ...allMangas.map((m: any) => m.id || 0)
+      );
+
       const nextId = maxId + 1;
 
       targetManga = await addManga({
         id: nextId,
         title: title.trim(),
+
         author: author || 'Local Creator',
-        artist: artist || author || 'Local Creator',
-        description: description || 'Uploaded local CBZ manga archive.',
-        genre: Array.isArray(genre) && genre.length > 0 ? genre : ['Local CBZ', 'Manga'],
-        status: status || 'Ongoing',
-        thumbnailUrl: finalThumb || 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=600',
+
+        artist:
+          artist ||
+          author ||
+          'Local Creator',
+
+        description:
+          description ||
+          'Uploaded local CBZ manga archive.',
+
+        genre:
+          Array.isArray(genre) && genre.length > 0
+            ? genre
+            : ['Local CBZ', 'Manga'],
+
+        status:
+          status ||
+          'Ongoing',
+
+        thumbnailUrl:
+          finalThumb ||
+          'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?w=600',
+
         inLibrary: true,
-        inLibraryAt: new Date().toISOString(),
+
+        inLibraryAt:
+          new Date().toISOString(),
+
         sourceId: 'local_cbz',
-        url: `/local_cbz/${nextId}`,
-        categories: [1], // Default "Reading" category
+
+        url:
+          `/local_cbz/${nextId}`,
+
+        categories: [1],
+
         chaptersCount: 0,
+
         unreadCount: 0,
       });
     } else {
-      // Update metadata if provided
+
+      // -----------------------------------------
+      // Update existing manga metadata
+      // -----------------------------------------
       const updates: any = {};
-      if (author) updates.author = author;
-      if (artist) updates.artist = artist;
-      if (description) updates.description = description;
-      if (genre && genre.length > 0) updates.genre = genre;
-      if (finalThumb) updates.thumbnailUrl = finalThumb;
-      updates.inLibrary = true;
-      updates.inLibraryAt = new Date().toISOString();
-      targetManga = await updateManga(targetManga.id, updates);
-    }
 
-    // Process and add chapters with Cloudinary page upload
-    const existingChapters = await getChapters(targetManga.id);
-    const addedChaptersList: any[] = [];
-
-    for (const chData of chapters) {
-      const chNum = chData.chapterNumber || (existingChapters.length + addedChaptersList.length + 1);
-      const chName = chData.name || `Chapter ${chNum}`;
-      let rawPages: string[] = chData.pages || [];
-
-      // Upload chapter pages to Cloudinary if they are base64 data URIs
-      let hostedPages = rawPages;
-      if (rawPages.length > 0 && rawPages.some((p) => p.startsWith('data:'))) {
-        console.log(`[Cloudinary] Uploading ${rawPages.length} pages for ${targetManga.title} Ch.${chNum}...`);
-        hostedPages = await uploadBatchImagesToCloudinary(
-          rawPages,
-          `suwayomi_manga/${targetManga.id}/ch_${chNum}`,
-          5
-        );
+      if (author) {
+        updates.author = author;
       }
 
-      const chId = Math.floor(Date.now() + Math.random() * 1000000);
+      if (artist) {
+        updates.artist = artist;
+      }
 
-      // Build the panel script for every uploaded page. AI subtitles are only
-      // generated when explicitly requested — otherwise a no-AI basic script is
-      // created so every image becomes an editable panel.
+      if (description) {
+        updates.description = description;
+      }
+
+      if (
+        genre &&
+        genre.length > 0
+      ) {
+        updates.genre = genre;
+      }
+
+      if (finalThumb) {
+        updates.thumbnailUrl = finalThumb;
+      }
+
+      updates.inLibrary = true;
+
+      updates.inLibraryAt =
+        new Date().toISOString();
+
+      targetManga =
+        await updateManga(
+          targetManga.id,
+          updates
+        );
+    }
+
+    // -----------------------------------------
+    // Existing chapters
+    // -----------------------------------------
+    const existingChapters =
+      await getChapters(targetManga.id);
+
+    const addedChaptersList: any[] = [];
+
+    // -----------------------------------------
+    // Process chapters
+    // -----------------------------------------
+    for (const chData of chapters) {
+
+      const chNum =
+        chData.chapterNumber ||
+        (
+          existingChapters.length +
+          addedChaptersList.length +
+          1
+        );
+
+      const chName =
+        chData.name ||
+        `Chapter ${chNum}`;
+
+      // -----------------------------------------
+      // Original pages
+      // -----------------------------------------
+      let rawPages: string[] =
+        Array.isArray(chData.pages)
+          ? chData.pages
+          : [];
+
+      // -----------------------------------------
+      // Save original page names/indexes
+      // -----------------------------------------
+      const pageMetadata =
+        rawPages.map(
+          (page: string, index: number) =>
+            getPageMetadata(
+              page,
+              index
+            )
+        );
+
+      // -----------------------------------------
+      // Upload pages to Cloudinary
+      // -----------------------------------------
+      let hostedPages =
+        rawPages;
+
+      if (
+        rawPages.length > 0 &&
+        rawPages.some(
+          (p: string) =>
+            p.startsWith('data:')
+        )
+      ) {
+
+        console.log(
+          `[Cloudinary] Uploading ${rawPages.length} pages for ${targetManga.title} Ch.${chNum}...`
+        );
+
+        hostedPages =
+          await uploadBatchImagesToCloudinary(
+            rawPages,
+
+            `suwayomi_manga/${targetManga.id}/ch_${chNum}`,
+
+            5
+          );
+      }
+
+      // -----------------------------------------
+      // Generate chapter ID
+      // -----------------------------------------
+      const chId =
+        Math.floor(
+          Date.now() +
+          Math.random() * 1000000
+        );
+
+      // -----------------------------------------
+      // Generate panel script
+      // -----------------------------------------
       let generatedScript = null;
-      if (hostedPages.length > 0) {
+
+      if (
+        hostedPages.length > 0
+      ) {
+
         try {
-          if (req.body.autoGenerateSubtitles === true) {
-            generatedScript = await generateWebtoonScript({
-              mangaId: targetManga.id,
-              chapterId: chId,
-              mangaTitle: targetManga.title,
-              chapterName: chName,
-              pages: hostedPages,
-            });
+
+          if (
+            req.body.autoGenerateSubtitles === true
+          ) {
+
+            generatedScript =
+              await generateWebtoonScript({
+                mangaId:
+                  targetManga.id,
+
+                chapterId:
+                  chId,
+
+                mangaTitle:
+                  targetManga.title,
+
+                chapterName:
+                  chName,
+
+                pages:
+                  hostedPages,
+              });
+
           } else {
-            generatedScript = generateFallbackWebtoonScript({
-              mangaId: targetManga.id,
-              chapterId: chId,
-              mangaTitle: targetManga.title,
-              chapterName: chName,
-              pages: hostedPages,
-            });
+
+            generatedScript =
+              generateFallbackWebtoonScript({
+                mangaId:
+                  targetManga.id,
+
+                chapterId:
+                  chId,
+
+                mangaTitle:
+                  targetManga.title,
+
+                chapterName:
+                  chName,
+
+                pages:
+                  hostedPages,
+              });
           }
+
         } catch (subErr) {
-          console.warn('[API Chapter Upload] Subtitle generation notice:', subErr);
+
+          console.warn(
+            '[API Chapter Upload] Subtitle generation notice:',
+            subErr
+          );
         }
       }
 
+      // -----------------------------------------
+      // New chapter
+      // -----------------------------------------
       const newChapter = {
-        id: chId,
-        mangaId: targetManga.id,
-        chapterNumber: chNum,
-        name: chName,
-        uploadDate: chData.uploadDate || new Date().toISOString(),
-        read: false,
-        bookmark: false,
-        lastPageRead: 0,
-        pageCount: hostedPages.length,
-        pages: hostedPages,
-        url: `/local_cbz/${targetManga.id}/chapter/${chNum}`,
-        script: generatedScript,
+
+        id:
+          chId,
+
+        mangaId:
+          targetManga.id,
+
+        chapterNumber:
+          chNum,
+
+        name:
+          chName,
+
+        uploadDate:
+          chData.uploadDate ||
+          new Date().toISOString(),
+
+        read:
+          false,
+
+        bookmark:
+          false,
+
+        lastPageRead:
+          0,
+
+        pageCount:
+          hostedPages.length,
+
+        // Keep existing API structure
+        pages:
+          hostedPages,
+
+        // NEW:
+        // Original filename + sorting metadata
+        pageMetadata:
+          pageMetadata,
+
+        url:
+          `/local_cbz/${targetManga.id}/chapter/${chNum}`,
+
+        script:
+          generatedScript,
       };
 
-      await addChapter(newChapter);
-      if (generatedScript) {
-        await saveWebtoonScript(generatedScript);
+      // -----------------------------------------
+      // Save chapter
+      // -----------------------------------------
+      await addChapter(
+        newChapter
+      );
+
+      // -----------------------------------------
+      // Save script
+      // -----------------------------------------
+      if (
+        generatedScript
+      ) {
+        await saveWebtoonScript(
+          generatedScript
+        );
       }
-      addedChaptersList.push(newChapter);
+
+      // -----------------------------------------
+      // Add to response
+      // -----------------------------------------
+      addedChaptersList.push(
+        newChapter
+      );
     }
 
-    // Update chapter counts on manga
-    const updatedChapters = await getChapters(targetManga.id);
-    const unreadCount = updatedChapters.filter((c:any) => !c.read).length;
+    // -----------------------------------------
+    // Update manga chapter counts
+    // -----------------------------------------
+    const updatedChapters =
+      await getChapters(
+        targetManga.id
+      );
 
-    targetManga = await updateManga(targetManga.id, {
-      chaptersCount: updatedChapters.length,
-      unreadCount: unreadCount,
-      thumbnailUrl: targetManga.thumbnailUrl || addedChaptersList[0]?.pages?.[0],
-    });
+    const unreadCount =
+      updatedChapters.filter(
+        (c: any) => !c.read
+      ).length;
 
+    targetManga =
+      await updateManga(
+        targetManga.id,
+        {
+          chaptersCount:
+            updatedChapters.length,
+
+          unreadCount:
+            unreadCount,
+
+          thumbnailUrl:
+            targetManga.thumbnailUrl ||
+            addedChaptersList[0]?.pages?.[0],
+        }
+      );
+
+    // -----------------------------------------
+    // Existing response — FRONTEND UNCHANGED
+    // -----------------------------------------
     res.json({
       success: true,
-      manga: targetManga,
-      addedChapters: addedChaptersList,
+
+      manga:
+        targetManga,
+
+      addedChapters:
+        addedChaptersList,
     });
+
   } catch (err: any) {
-    console.error('[API CBZ / Chapter Upload] Error:', err);
-    res.status(500).json({ error: err.message });
+
+    console.error(
+      '[API CBZ / Chapter Upload] Error:',
+      err
+    );
+
+    res.status(500).json({
+      error:
+        err.message,
+    });
   }
 };
-
 apiRouter.post('/manga/upload-cbz', handleUploadCbzOrChapters);
 apiRouter.post('/manga/:mangaId/chapter/upload', handleUploadCbzOrChapters);
 apiRouter.post('/manga/:mangaId/chapters/upload', handleUploadCbzOrChapters);
