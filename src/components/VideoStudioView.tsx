@@ -246,57 +246,95 @@ export const VideoStudioView: React.FC = () => {
     ctx.fillStyle = '#09090b';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Find visible video clips active at current playhead time
-    const activeVideoClips: VideoClip[] = [];
+    const clipActive = (c: VideoClip) => playheadTime >= c.start && playheadTime < c.start + c.duration;
 
-    const visibleVideoTracks = currentProject.tracks.filter((t) => t.type === 'video' && !t.hidden);
-    for (const track of visibleVideoTracks) {
-      for (const clip of track.clips) {
-        if (playheadTime >= clip.start && playheadTime <= clip.start + clip.duration) {
-          activeVideoClips.push(clip);
+    // Tracks are ordered top-first (V5 -> V1): draw bottom-up so the topmost
+    // visible track wins
+    const visibleVideoTracks = currentProject.tracks
+      .filter((t) => t.type === 'video' && !t.hidden)
+      .reverse();
+
+    // Render each active image/video clip onto the Canvas
+    visibleVideoTracks.forEach((track) => {
+      track.clips.filter(clipActive).forEach((clip) => {
+        const src = clip.mediaUrl || clip.url;
+        if (!src || clip.mediaType === 'text') return;
+
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.src = src;
+
+        const renderClip = () => {
+          if (!img.naturalWidth) return;
+          ctx.save();
+
+          const t = clip.transform || { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1 };
+          const posX = canvas.width / 2 + (t.x || 0);
+          const posY = canvas.height / 2 + (t.y || 0);
+          const fit = Math.min(canvas.width / img.width, canvas.height / img.height);
+          const drawWidth = img.width * fit * (t.scaleX ?? 1);
+          const drawHeight = img.height * fit * (t.scaleY ?? t.scaleX ?? 1);
+
+          ctx.translate(posX, posY);
+          ctx.rotate(((t.rotation || 0) * Math.PI) / 180);
+          ctx.globalAlpha = t.opacity ?? 1;
+
+          ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+
+          // Selection Highlight Border
+          if (clip.id === selectedClipId) {
+            ctx.strokeStyle = '#6366f1';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(-drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+          }
+
+          ctx.restore();
+        };
+
+        if (img.complete && img.naturalWidth > 0) {
+          renderClip();
+        } else {
+          img.onload = renderClip;
         }
-      }
-    }
-
-    // Render each active clip onto the Canvas
-    activeVideoClips.forEach((clip) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = clip.mediaUrl || clip.url || '';
-
-      const renderClip = () => {
-        ctx.save();
-
-        // Transform calculations
-        const posX = (clip.transform.x / 100) * canvas.width + canvas.width / 2;
-        const posY = (clip.transform.y / 100) * canvas.height + canvas.height / 2;
-        const scale = ((clip.transform.scale ?? clip.transform.scaleX ?? 100) / 100);
-
-        ctx.translate(posX, posY);
-        ctx.rotate((clip.transform.rotation * Math.PI) / 180);
-        ctx.globalAlpha = clip.transform.opacity / 100;
-
-        const drawWidth = canvas.width * scale;
-        const drawHeight = canvas.height * scale;
-
-        ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
-
-        // Selection Highlight Border
-        if (clip.id === selectedClipId) {
-          ctx.strokeStyle = '#6366f1';
-          ctx.lineWidth = 4;
-          ctx.strokeRect(-drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
-        }
-
-        ctx.restore();
-      };
-
-      if (img.complete) {
-        renderClip();
-      } else {
-        img.onload = renderClip;
-      }
+      });
     });
+
+    // Render active text/subtitle clips on top
+    currentProject.tracks
+      .filter((t) => t.type === 'text' && !t.hidden)
+      .forEach((track) => {
+        track.clips.filter(clipActive).forEach((clip) => {
+          if (!clip.text) return;
+          const s = clip.textStyle;
+          const fontSize = s?.fontSize || 28;
+          const lineHeight = fontSize * (s?.lineHeight || 1.3);
+          const lines = String(clip.text).split('\n');
+          const halfBlock = (lines.length * lineHeight) / 2;
+          const centerY = Math.max(
+            halfBlock + 16,
+            Math.min(canvas.height - halfBlock - 16, canvas.height / 2 + (clip.transform?.y ?? 0))
+          );
+          const baseY = centerY - halfBlock + lineHeight / 2;
+
+          ctx.save();
+          ctx.font = `${s?.fontWeight || '600'} ${fontSize}px ${s?.fontFamily || 'Inter'}, sans-serif`;
+          ctx.textAlign = (s?.align as CanvasTextAlign) || 'center';
+          ctx.textBaseline = 'middle';
+          ctx.globalAlpha = clip.transform?.opacity ?? 1;
+
+          lines.forEach((line, i) => {
+            const ly = baseY + i * lineHeight;
+            if (s?.backgroundColor) {
+              const w = ctx.measureText(line).width + fontSize;
+              ctx.fillStyle = s.backgroundColor;
+              ctx.fillRect(canvas.width / 2 - w / 2, ly - lineHeight / 2, w, lineHeight);
+            }
+            ctx.fillStyle = s?.color || '#FFFFFF';
+            ctx.fillText(line, canvas.width / 2, ly);
+          });
+          ctx.restore();
+        });
+      });
 
     // Timecode Overlay in Monitor
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
