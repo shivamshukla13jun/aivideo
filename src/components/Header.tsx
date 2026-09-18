@@ -1,161 +1,191 @@
-import React from 'react';
-import {
-  BookOpen,
-  Compass,
-  Clock,
-  History,
-  Settings,
-  Download,
-  Database,
-  CheckCircle2,
-  AlertCircle,
-  FolderArchive,
-  ArrowDownToLine,
-  Flame,
-  Zap,
-  Sparkles,
-  Film,
-  Smartphone,
-} from 'lucide-react';
-import { NavigationTab, MongoStatus } from '../types.js';
+import React, { useState } from 'react';
+import { useAppDispatch, useAppSelector } from '../redux/hooks';
+import { clearNotification, openAuthModal, showNotification } from '../redux/slices/uiSlice';
+import { logout } from '../redux/slices/authSlice';
+import { Bell, CheckCircle2, AlertCircle, Info, Sparkles, Film, User, LogIn, UserPlus, LogOut, ChevronDown } from 'lucide-react';
 
-interface HeaderProps {
-  currentTab: NavigationTab;
-  onTabChange: (tab: NavigationTab) => void;
-  mongoStatus: MongoStatus;
-  onOpenMongoModal: () => void;
-  onDownloadZip: () => void;
-  isDownloadingZip: boolean;
-  downloadCount?: number;
-  onOpenApkModal?: () => void;
-  onOpenUploadCbzModal?: () => void;
-}
+export const Header: React.FC = () => {
+  const dispatch = useAppDispatch();
+  const { activeTab, notification } = useAppSelector((state) => state.ui);
+  const { currentChapter } = useAppSelector((state) => state.chapter);
+  const { selectedSeries } = useAppSelector((state) => state.series);
+  const { user, isAuthenticated } = useAppSelector((state) => state.auth);
 
-export const Header: React.FC<HeaderProps> = ({
-  currentTab,
-  onTabChange,
-  mongoStatus,
-  onOpenMongoModal,
-  onDownloadZip,
-  isDownloadingZip,
-  downloadCount = 0,
-  onOpenApkModal,
-  onOpenUploadCbzModal,
-}) => {
-  const isMongoConnected = mongoStatus.connected;
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+
+  const formatTabTitle = (tab: string) => {
+    switch (tab) {
+      case 'dashboard':
+        return 'Studio Overview';
+      case 'series':
+        return 'Series Library Management';
+      case 'chapters':
+        return 'Chapter CBZ & Image Upload';
+      case 'reader':
+        return 'Webtoon Reader & Scene Narration';
+      case 'story-studio':
+        return 'Story Scripting & Chapter Complete Story';
+      case 'voice':
+        return 'Reference Voice Manager (1-Voice Constraint)';
+      case 'video-studio':
+        return 'Professional Multi-Track Video Editor (NLE)';
+      case 'assets':
+        return 'Media Bin & Project Assets';
+      case 'settings':
+        return 'System & API Settings';
+      default:
+        return 'Webtoon Studio';
+    }
+  };
+
+  const handleLogout = () => {
+    dispatch(logout());
+    dispatch(showNotification({
+      message: 'Logged out successfully. You can sign in or create an account anytime.',
+      type: 'info'
+    }));
+    setUserMenuOpen(false);
+  };
 
   return (
-    <header className="sticky top-0 z-40 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800 text-zinc-100">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-        {/* Brand */}
-        <div className="flex items-center gap-3 cursor-pointer select-none" onClick={() => onTabChange('library')}>
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-600 to-orange-500 flex items-center justify-center shadow-lg shadow-rose-950/50">
-            <BookOpen className="w-5 h-5 text-white" />
+    <header className="h-14 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-md px-6 flex items-center justify-between z-20 shrink-0">
+      <div className="flex items-center gap-3">
+        <h2 className="text-sm font-semibold text-zinc-100">{formatTabTitle(activeTab)}</h2>
+        {selectedSeries && (
+          <span className="text-xs text-zinc-400 bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded-full">
+            Series: <span className="text-zinc-200 font-medium">{selectedSeries.title}</span>
+          </span>
+        )}
+        {currentChapter && (
+          <span className="text-xs text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-full">
+            Ch. {currentChapter.chapterNumber}: {currentChapter.title}
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center gap-3">
+        {/* Notification Toast Banner */}
+        {notification && (
+          <div
+            className={`flex items-center gap-2 px-3 py-1 rounded-md text-xs border ${
+              notification.type === 'success'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                : notification.type === 'error'
+                ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                : 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400'
+            }`}
+          >
+            {notification.type === 'success' && <CheckCircle2 className="w-3.5 h-3.5" />}
+            {notification.type === 'error' && <AlertCircle className="w-3.5 h-3.5" />}
+            {notification.type === 'info' && <Info className="w-3.5 h-3.5" />}
+            <span>{notification.message}</span>
+            <button
+              onClick={() => dispatch(clearNotification())}
+              className="ml-1 text-zinc-400 hover:text-zinc-200"
+            >
+              ×
+            </button>
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-lg tracking-tight bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent">
-                Suwayomi
-              </span>
-              <span className="text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                TypeScript
-              </span>
-            </div>
-            <p className="text-[11px] text-zinc-400 hidden sm:block">Manga Server & Reader</p>
-          </div>
+        )}
+
+        <div className="hidden sm:flex items-center gap-2 text-xs text-zinc-400 bg-zinc-900 border border-zinc-800 px-2.5 py-1 rounded-md">
+          <Film className="w-3.5 h-3.5 text-indigo-400" />
+          <span>Render Pipeline: Active</span>
         </div>
 
-        {/* Navigation Tabs */}
-        <nav className="flex items-center gap-1 bg-zinc-900/90 p-1 rounded-xl border border-zinc-800/80 overflow-x-auto no-scrollbar">
-          <button
-            id="nav-tab-library"
-            onClick={() => onTabChange('library')}
-            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all shrink-0 cursor-pointer ${
-              currentTab === 'library'
-                ? 'bg-zinc-800 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
-            }`}
-          >
-            <BookOpen className="w-4 h-4 text-rose-400" />
-            <span>Library</span>
-          </button>
+        {/* Auth / Account Controls */}
+        <div className="relative">
+          {isAuthenticated && user ? (
+            <div className="relative">
+              <button
+                id="header-user-menu-btn"
+                onClick={() => setUserMenuOpen(!userMenuOpen)}
+                className="flex items-center gap-2 px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-lg text-xs text-zinc-200 transition-colors"
+              >
+                <div className="w-5 h-5 rounded-full bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 flex items-center justify-center font-bold text-[10px]">
+                  {user.name?.[0]?.toUpperCase() || 'U'}
+                </div>
+                <span className="font-medium max-w-[120px] truncate">{user.name || user.email}</span>
+                {user.role === 'superadmin' && (
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    SUPER ADMIN
+                  </span>
+                )}
+                <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
+              </button>
 
-
-
-          <button
-            id="nav-tab-downloads"
-            onClick={() => onTabChange('downloads')}
-            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all shrink-0 relative cursor-pointer ${
-              currentTab === 'downloads'
-                ? 'bg-zinc-800 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
-            }`}
-          >
-            <ArrowDownToLine className="w-4 h-4 text-purple-400" />
-            <span className="hidden lg:inline">Downloads</span>
-            {downloadCount > 0 && (
-              <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse absolute top-1 right-1" />
-            )}
-          </button>
-
-          <button
-            id="nav-tab-ai-generator"
-            onClick={() => onTabChange('ai_generator')}
-            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all shrink-0 relative cursor-pointer ${
-              currentTab === 'ai_generator'
-                ? 'bg-rose-600/20 text-rose-300 border border-rose-500/40 shadow-sm'
-                : 'text-zinc-400 hover:text-rose-300 hover:bg-zinc-800/40'
-            }`}
-          >
-            <Film className="w-4 h-4 text-rose-400 animate-pulse" />
-            <span>AI Generator</span>
-          </button>
-
-          <button
-            id="nav-tab-ai-projects"
-            onClick={() => onTabChange('ai_projects')}
-            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all shrink-0 relative cursor-pointer ${
-              currentTab === 'ai_projects'
-                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
-                : 'text-zinc-400 hover:text-amber-200 hover:bg-zinc-800/40'
-            }`}
-          >
-            <Sparkles className="w-4 h-4 text-amber-400" />
-            <span>AI Works DB</span>
-          </button>
-
-          <button
-            id="nav-tab-history"
-            onClick={() => onTabChange('history')}
-            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all shrink-0 cursor-pointer ${
-              currentTab === 'history'
-                ? 'bg-zinc-800 text-white shadow-sm'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40'
-            }`}
-          >
-            <History className="w-4 h-4 text-cyan-400" />
-            <span className="hidden lg:inline">History</span>
-          </button>
-
-        </nav>
-
-        {/* Right Actions: Upload CBZ, Android APK, MongoDB status & Download Project ZIP */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          {/* Upload CBZ / Local Manga Button */}
-          {onOpenUploadCbzModal && (
-            <button
-              id="btn-header-upload-cbz"
-              onClick={onOpenUploadCbzModal}
-              title="Upload local CBZ or ZIP manga files to database"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-all cursor-pointer shadow-sm"
-            >
-              <FolderArchive className="w-4 h-4 text-amber-400" />
-              <span className="hidden md:inline">Upload CBZ</span>
-            </button>
+              {userMenuOpen && (
+                <div
+                  className="absolute right-0 mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-xl shadow-xl py-1.5 z-50 animate-fade-in"
+                  onMouseLeave={() => setUserMenuOpen(false)}
+                >
+                  <div className="px-3 py-2 border-b border-zinc-800/80">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-xs font-semibold text-zinc-200 truncate">{user.name || 'Creator'}</p>
+                      {user.role === 'superadmin' && (
+                        <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                          Super Admin
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-zinc-400 truncate">{user.email}</p>
+                  </div>
+                  <button
+                    id="menu-switch-account-btn"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      dispatch(openAuthModal('login'));
+                    }}
+                    className="w-full px-3 py-2 text-left text-xs text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800/60 flex items-center gap-2"
+                  >
+                    <LogIn className="w-3.5 h-3.5 text-indigo-400" />
+                    Switch Account / Sign In
+                  </button>
+                  <button
+                    id="menu-register-account-btn"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      dispatch(openAuthModal('register'));
+                    }}
+                    className="w-full px-3 py-2 text-left text-xs text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800/60 flex items-center gap-2"
+                  >
+                    <UserPlus className="w-3.5 h-3.5 text-emerald-400" />
+                    Register New Account
+                  </button>
+                  <div className="border-t border-zinc-800/80 my-1"></div>
+                  <button
+                    id="menu-logout-btn"
+                    onClick={handleLogout}
+                    className="w-full px-3 py-2 text-left text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 flex items-center gap-2"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    Sign Out
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                id="header-login-btn"
+                onClick={() => dispatch(openAuthModal('login'))}
+                className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700/60 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
+              >
+                <LogIn className="w-3.5 h-3.5 text-indigo-400" />
+                Sign In
+              </button>
+              <button
+                id="header-register-btn"
+                onClick={() => dispatch(openAuthModal('register'))}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm shadow-indigo-600/30 transition-colors"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                Register
+              </button>
+            </div>
           )}
         </div>
       </div>
     </header>
   );
 };
-
