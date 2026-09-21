@@ -1,6 +1,1 @@
-{
-  "name": "Webtoon & Video Studio",
-  "description": "Production-grade Webtoon/Comic Reader, Storytelling Studio, AI Narration Generator & Professional Multi-Track Video Editor.",
-  "requestFramePermissions": ["microphone"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
+{"name":"WebtoonForge","description":"Production-ready Webtoon Reader, CBZ Panel Editor, Scene Editor, and Video Studio with MongoDB and Cloudinary integration.","requestFramePermissions":[],"majorCapabilities":["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]}
