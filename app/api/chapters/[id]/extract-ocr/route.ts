@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import { Page } from '@/models/Page';
 import { Scene } from '@/models/Scene';
-import { getChapterPages } from '@/lib/suwayomi';
+import { getChapterPages, resolveSuwayomiInternalUrl } from '@/lib/suwayomi';
 import { extractTextFromImage } from '@/lib/ocr';
 
 export const dynamic = 'force-dynamic';
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // Extract text via OCR
       let extractedText = '';
       try {
-        extractedText = await extractTextFromImage(pageUrl);
+        extractedText = await extractTextFromImage(resolveSuwayomiInternalUrl(pageUrl));
       } catch (ocrErr) {
         console.warn(`OCR failed for chapter ${chapterId} page ${order}, keeping empty:`, ocrErr);
         extractedText = '';

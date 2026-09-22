@@ -1,0 +1,32 @@
+# ALL-IN-ONE deployment: one container runs BOTH Next.js and Suwayomi,
+# served from a single domain/port.
+#
+#   docker compose up -d --build      (or: npm run docker:up)
+#
+#   http://localhost:3000            -> Next.js app
+#   http://localhost:3000/suwayomi/* -> embedded Suwayomi (GraphQL, pages, thumbs)
+#   http://localhost:4567            -> Suwayomi WebUI/API (optional, for dev)
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aivideo-app:latest
+    container_name: aivideo-app
+    ports:
+      - "${APP_PORT:-3000}:3000"   # the single public port for both apps
+      - "4567:4567"                # optional: direct Suwayomi access (dev/WebUI)
+    env_file:
+      - .env          # supplies MONGODB_URI, Cloudinary keys, GEMINI_API_KEY, etc.
+    environment:
+      # these must win over .env inside the container
+      SUWAYOMI_URL: http://127.0.0.1:4567/suwayomi
+      NEXT_PUBLIC_SUWAYOMI_URL: /suwayomi
+      # JAVA_OPTS: "-Xmx512m"      # limit JVM heap on small hosts
+    volumes:
+      - suwayomi_data:/home/suwayomi/.local/share/Tachidesk
+    restart: unless-stopped
+
+volumes:
+  suwayomi_data: # existing volume — holds the Suwayomi library/downloads
