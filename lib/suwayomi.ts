@@ -6,7 +6,7 @@
 export const SUWAYOMI_URL =
   process.env.SUWAYOMI_URL ||
   process.env.NEXT_PUBLIC_SUWAYOMI_URL ||
-  'http://localhost:4567';
+  'https://suwayomi-server-stable-l0ju.onrender.com';
 
 export function resolveSuwayomiUrl(url?: string | null): string {
   if (!url) return '';
