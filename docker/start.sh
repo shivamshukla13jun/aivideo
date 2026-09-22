@@ -19,7 +19,7 @@ java ${JAVA_OPTS:-} \
   -jar "${JAR}" &
 SUWA_PID=$!
 
-echo "[start] Next.js -> 0.0.0.0:${PORT:-3000}"
+echo "[start] Next.js -> 0.0.0.0:${PORT:-5000}"
 cd /app
 node server.js &
 NODE_PID=$!

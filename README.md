@@ -22,7 +22,7 @@ MONGODB_URI=your_mongodb_connection_string
 CLOUDINARY_CLOUD_NAME=your_cloudinary_cloud_name
 CLOUDINARY_API_KEY=your_cloudinary_api_key
 CLOUDINARY_API_SECRET=your_cloudinary_api_secret
-NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXT_PUBLIC_APP_URL=http://localhost:5000
 ```
 
 ---
@@ -44,12 +44,12 @@ Suwayomi-Server in one container (JRE + jar copied from the official
 `ghcr.io/suwayomi/suwayomi-server:stable` image). Deployable to any single
 web service (Render, Railway, a VPS, etc.).
 
-Everything shares the same domain/port (default `3000`, honors `PORT`):
+Everything shares the same domain/port (default `5000`, honors `PORT`):
 
-- `http://localhost:3000/` — the web app
-- `http://localhost:3000/suwayomi` — Suwayomi WebUI (extensions, sources)
-- `http://localhost:3000/suwayomi/api/graphql` — GraphQL
-- `http://localhost:3000/suwayomi/api/v1/*` — thumbnails, pages, REST
+- `http://localhost:5000/` — the web app
+- `http://localhost:5000/suwayomi` — Suwayomi WebUI (extensions, sources)
+- `http://localhost:5000/suwayomi/api/graphql` — GraphQL
+- `http://localhost:5000/suwayomi/api/v1/*` — thumbnails, pages, REST
 
 Internally Suwayomi runs with `webUISubpath=/suwayomi` on port 4567 and the
 Next.js server proxies `/suwayomi/*` to it. Suwayomi data persists in the
@@ -62,7 +62,7 @@ npm run docker:up          # = docker compose up -d --build
 
 # or plain docker:
 docker build -t aivideo-app .
-docker run -d -p 3000:3000 --env-file .env \
+docker run -d -p 5000:5000 --env-file .env \
   -v suwayomi_data:/home/suwayomi/.local/share/Tachidesk \
   --name aivideo-app aivideo-app
 

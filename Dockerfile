@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1
 # ALL-IN-ONE image: Next.js app + Suwayomi-Server in a single web service.
 #
-#   - Next.js standalone server listens on 0.0.0.0:$PORT (default 3000)
+#   - Next.js standalone server listens on 0.0.0.0:$PORT (default 5000)
 #   - Suwayomi-Server runs inside the same container on 4567
 #   - /suwayomi/* requests are proxied to it via a Next.js rewrite,
 #     so BOTH apps share the same domain/port
 #
 # Build:  docker build -t aivideo-app .
-# Run:    docker run -p 3000:3000 --env-file .env \
+# Run:    docker run -p 5000:5000 --env-file .env \
 #           -v suwayomi_data:/home/suwayomi/.local/share/Tachidesk aivideo-app
 # Or:     docker compose up -d --build
 
@@ -51,7 +51,7 @@ FROM node:24-bookworm-slim AS runner
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
-    PORT=3000 \
+    PORT=5000 \
     HOSTNAME=0.0.0.0 \
     SUWAYOMI_URL=http://127.0.0.1:4567/suwayomi \
     NEXT_PUBLIC_SUWAYOMI_URL=/suwayomi \
@@ -79,12 +79,12 @@ COPY --from=builder /app/eng.traineddata ./eng.traineddata
 COPY docker/start.sh /usr/local/bin/start.sh
 RUN chmod +x /usr/local/bin/start.sh
 
-EXPOSE 3000
+EXPOSE 5000
 # Suwayomi data (library, downloads, extensions) — mount a volume/disk here
 VOLUME ["/home/suwayomi/.local/share/Tachidesk"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||5000)+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/usr/local/bin/start.sh"]

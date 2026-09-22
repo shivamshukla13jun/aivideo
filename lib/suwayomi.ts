@@ -9,7 +9,7 @@
 export const APP_URL = (
   process.env.NEXT_PUBLIC_APP_URL ||
   process.env.APP_URL ||
-  'http://localhost:3000'
+  'http://localhost:5000'
 ).replace(/\/+$/, '');
 
 /** Same-origin path that proxies to Suwayomi */
