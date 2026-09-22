@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Navbar from '@/components/Navbar';
+import OcrJobsPanel from '@/components/OcrJobsPanel';
 import Link from 'next/link';
 import { BookOpen, Play, Search, Star, Clock, Layers, Server, RefreshCw } from 'lucide-react';
 
@@ -132,6 +133,9 @@ export default function HomePage() {
             </button>
           </div>
         )}
+
+        {/* OCR Background Jobs */}
+        <OcrJobsPanel />
 
         {/* Search & Genre Filters */}
         <div className="flex flex-col md:flex-row items-center justify-between gap-4">

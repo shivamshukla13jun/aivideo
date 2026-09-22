@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
-import { Page } from '@/models/Page';
-import { Scene } from '@/models/Scene';
-import { getChapterPages, resolveSuwayomiInternalUrl } from '@/lib/suwayomi';
-import { extractTextFromImage } from '@/lib/ocr';
+import { OcrJob } from '@/models/OcrJob';
+import { getChapterDetails, getMangaDetails } from '@/lib/suwayomi';
+import { publishOcrJob } from '@/lib/queue';
+import { runOcrJob } from '@/lib/ocrJob';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,84 +17,52 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const body = await req.json().catch(() => ({}));
-    const targetPageOrders: number[] | null = Array.isArray(body.orders) ? body.orders : null;
+    const targetOrders: number[] | null = Array.isArray(body.orders) ? body.orders : null;
 
-    // 1. Fetch live chapter pages from Suwayomi
-    const { pages } = await getChapterPages(numericId);
     await connectDB();
 
-    const results: { order: number; extractedText: string }[] = [];
-
-    for (let idx = 0; idx < pages.length; idx++) {
-      const order = idx + 1;
-
-      // If specific orders requested, filter
-      if (targetPageOrders && !targetPageOrders.includes(order)) {
-        continue;
-      }
-
-      const pageUrl = pages[idx];
-      let pageDoc = await Page.findOne({ chapterId, order });
-
-      // If already extracted and not forcing, keep existing
-      if (pageDoc?.extractedText && !body.force) {
-        results.push({ order, extractedText: pageDoc.extractedText });
-        continue;
-      }
-
-      // Extract text via OCR
-      let extractedText = '';
-      try {
-        extractedText = await extractTextFromImage(resolveSuwayomiInternalUrl(pageUrl));
-      } catch (ocrErr) {
-        console.warn(`OCR failed for chapter ${chapterId} page ${order}, keeping empty:`, ocrErr);
-        extractedText = '';
-      }
-
-      // Upsert Page in MongoDB
-      if (!pageDoc) {
-        pageDoc = await Page.create({
-          chapterId,
-          order,
-          originalUrl: pageUrl,
-          editedUrl: pageUrl,
-          extractedText: extractedText || '',
-          panels: [],
-          status: 'active',
-        });
-      } else {
-        pageDoc.extractedText = extractedText || '';
-        await pageDoc.save();
-      }
-
-      // If any existing scene has generic "Narration for Page..." or empty narration, update it
-      const pageIdStr = `${chapterId}_page_${idx}`;
-      const existingScenes = await Scene.find({
-        chapterId,
-        $or: [
-          { pageId: pageIdStr },
-          { pageId: String(pageDoc._id) },
-          { order: order },
-        ],
-      });
-
-      for (const scene of existingScenes) {
-        if (!scene.narration || scene.narration.startsWith('Narration for Page')) {
-          scene.narration = extractedText || '';
-          await scene.save();
+    // Resolve series/chapter names for the dashboard job card
+    let seriesId = '';
+    let seriesTitle = '';
+    let chapterName = `Chapter ${chapterId}`;
+    try {
+      const chap = await getChapterDetails(numericId);
+      if (chap) {
+        chapterName = chap.name || chapterName;
+        seriesId = String(chap.mangaId || '');
+        if (chap.mangaId != null) {
+          const manga = await getMangaDetails(chap.mangaId);
+          seriesTitle = manga?.title || '';
         }
       }
-
-      results.push({ order, extractedText: extractedText || '' });
+    } catch {
+      // non-fatal — job still works without display metadata
     }
 
-    return NextResponse.json({
-      success: true,
-      data: results,
-      total: results.length,
+    const jobId = `ocr_${chapterId}_${Date.now()}`;
+    await OcrJob.create({
+      jobId,
+      chapterId,
+      seriesId,
+      seriesTitle,
+      chapterName,
+      status: 'queued',
+      totalPages: targetOrders ? targetOrders.length : 0,
+      donePages: 0,
+      failedOrders: [],
     });
+
+    const queued = await publishOcrJob(jobId);
+
+    if (!queued) {
+      // RabbitMQ unavailable — fall back to synchronous extraction so OCR still works
+      const result = await runOcrJob(jobId);
+      return NextResponse.json({ success: true, queued: false, jobId, ...result });
+    }
+
+    return NextResponse.json({ success: true, queued: true, jobId }, { status: 202 });
   } catch (error: any) {
-    console.error('Error in batch OCR extraction:', error);
+    console.error('Error starting OCR extraction job:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

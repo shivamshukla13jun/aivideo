@@ -1,70 +1,18 @@
 /**
  * Suwayomi Server Integration Client
- * Suwayomi is served on the SAME URL/port as the Next.js app —
- * the /suwayomi/* proxy in next.config.ts forwards to the Suwayomi server
- * (GraphQL at /suwayomi/api/graphql, REST at /suwayomi/api/v1/*).
+ * Interacts with Suwayomi-Server running on port 4567 via GraphQL and REST endpoints.
  */
 
-/** Base URL of the Next.js app itself */
-export const APP_URL = (
-  process.env.NEXT_PUBLIC_APP_URL ||
-  process.env.APP_URL ||
-  'http://localhost:5000'
-).replace(/\/+$/, '');
-
-/** Same-origin path that proxies to Suwayomi */
-export const SUWAYOMI_PROXY_PATH = '/suwayomi';
-
-/**
- * Server-side Suwayomi base (GraphQL). Defaults to the app's own
- * /suwayomi proxy so everything runs on the Next.js URL; set
- * SUWAYOMI_URL to hit the server directly (e.g. http://suwayomi:4567 in Docker).
- */
-export const SUWAYOMI_URL = (() => {
-  const raw = process.env.SUWAYOMI_URL || `${APP_URL}${SUWAYOMI_PROXY_PATH}`;
-  const trimmed = raw.replace(/\/+$/, '');
-  // server-side fetch needs an absolute URL — expand relative paths via APP_URL
-  return trimmed.startsWith('/') ? `${APP_URL}${trimmed}` : trimmed;
-})();
-
-/**
- * Browser-facing base used to resolve thumbnail/page URLs returned by Suwayomi.
- * Defaults to the same-origin '/suwayomi' proxy path.
- */
-const SUWAYOMI_PUBLIC_URL = (
-  process.env.NEXT_PUBLIC_SUWAYOMI_URL || SUWAYOMI_PROXY_PATH
-).replace(/\/+$/, '');
+export const SUWAYOMI_URL = process.env.SUWAYOMI_URL || 'http://localhost:4567';
 
 export function resolveSuwayomiUrl(url?: string | null): string {
   if (!url) return '';
   if (url.startsWith('http://') || url.startsWith('https://')) {
     return url;
   }
-  // already prefixed with the public proxy path — return as-is
-  if (SUWAYOMI_PUBLIC_URL.startsWith('/') && url.startsWith(`${SUWAYOMI_PUBLIC_URL}/`)) {
-    return url;
-  }
-  const cleanBase = SUWAYOMI_PUBLIC_URL.replace(/\/+$/, '');
+  const cleanBase = SUWAYOMI_URL.replace(/\/+$/, '');
   const cleanPath = url.startsWith('/') ? url : `/${url}`;
   return `${cleanBase}${cleanPath}`;
-}
-
-/**
- * Resolve a Suwayomi URL for SERVER-SIDE fetching (OCR, image processing).
- * Accepts raw Suwayomi paths, '/suwayomi/*' proxy paths, or absolute URLs,
- * and always returns an absolute URL reachable from the Node server.
- */
-export function resolveSuwayomiInternalUrl(url?: string | null): string {
-  if (!url) return '';
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    return url;
-  }
-  let path = url;
-  if (path.startsWith(`${SUWAYOMI_PROXY_PATH}/`)) {
-    path = path.slice(SUWAYOMI_PROXY_PATH.length);
-  }
-  const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  return `${SUWAYOMI_URL}${cleanPath}`;
 }
 
 export async function querySuwayomi<T = any>(

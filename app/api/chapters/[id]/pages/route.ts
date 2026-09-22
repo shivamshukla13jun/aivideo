@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getChapterPages, resolveSuwayomiInternalUrl } from '@/lib/suwayomi';
+import { getChapterPages } from '@/lib/suwayomi';
 import { connectDB } from '@/lib/mongodb';
 import { Page } from '@/models/Page';
 
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           const fs = (await import('fs')).default;
           const path = (await import('path')).default;
 
-          const imgRes = await fetch(resolveSuwayomiInternalUrl(originalUrl));
+          const imgRes = await fetch(originalUrl);
           if (imgRes.ok) {
             const arrBuf = await imgRes.arrayBuffer();
             const imgBuffer = Buffer.from(arrBuf);

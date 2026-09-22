@@ -14,6 +14,7 @@ const PanelSchema = new Schema(
 
 export interface IPageDoc extends Document {
   chapterId: string;
+  pageId: string;
   order: number;
   originalUrl: string;
   editedUrl?: string;
@@ -28,6 +29,7 @@ export interface IPageDoc extends Document {
 const PageSchema = new Schema<IPageDoc>(
   {
     chapterId: { type: String, required: true, index: true },
+    pageId: { type: String, default: '', index: true },
     order: { type: Number, required: true },
     originalUrl: { type: String, required: true },
     editedUrl: { type: String },

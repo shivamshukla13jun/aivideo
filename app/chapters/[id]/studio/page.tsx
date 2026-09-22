@@ -195,7 +195,30 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
     }
   };
 
-  // OCR Text Extraction for All Pages
+  // Refresh pages + scenes after OCR completes
+  const refreshOcrResults = async () => {
+    const pRes = await fetch(`/api/chapters/${chapterId}/pages`);
+    const pData = await pRes.json();
+    if (pData.success) setPages(pData.data);
+
+    const sRes = await fetch(`/api/scenes?chapterId=${chapterId}`);
+    const sData = await sRes.json();
+    if (sData.success) {
+      const cleaned = sData.data.map((s: any) => ({
+        ...s,
+        narration: s.narration?.startsWith('Narration for Page') ? '' : (s.narration || ''),
+        effects: s.effects || 'ken-burns',
+        visualEffect: s.visualEffect || 'none',
+      }));
+      setScenes(cleaned);
+      if (activeScene) {
+        const updatedActive = cleaned.find((s: any) => s._id === activeScene._id);
+        if (updatedActive) setActiveScene(updatedActive);
+      }
+    }
+  };
+
+  // OCR Text Extraction for All Pages — queued via RabbitMQ, polled until done
   const handleExtractAllOcr = async () => {
     setExtractingOcr(true);
     setOcrSuccessMessage('');
@@ -206,37 +229,49 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
         body: JSON.stringify({ force: false }),
       });
       const data = await res.json();
-      if (data.success) {
-        // Refresh pages with extracted OCR text
-        const pRes = await fetch(`/api/chapters/${chapterId}/pages`);
-        const pData = await pRes.json();
-        if (pData.success) setPages(pData.data);
-
-        // Refresh scenes
-        const sRes = await fetch(`/api/scenes?chapterId=${chapterId}`);
-        const sData = await sRes.json();
-        if (sData.success) {
-          const cleaned = sData.data.map((s: any) => ({
-            ...s,
-            narration: s.narration?.startsWith('Narration for Page') ? '' : (s.narration || ''),
-            effects: s.effects || 'ken-burns',
-            visualEffect: s.visualEffect || 'none',
-          }));
-          setScenes(cleaned);
-          if (activeScene) {
-            const updatedActive = cleaned.find((s: any) => s._id === activeScene._id);
-            if (updatedActive) setActiveScene(updatedActive);
-          }
-        }
-        setOcrSuccessMessage(`OCR extracted text for ${data.data?.length || 0} pages!`);
-        setTimeout(() => setOcrSuccessMessage(''), 4500);
-      } else {
+      if (!data.success) {
         alert(data.error || 'OCR extraction failed');
+        setExtractingOcr(false);
+        return;
       }
+
+      if (data.queued && data.jobId) {
+        // Background job — poll its status until finished
+        const jobId = data.jobId;
+        const poll = async (): Promise<void> => {
+          try {
+            const jRes = await fetch(`/api/ocr-jobs?chapterId=${chapterId}`);
+            const jData = await jRes.json();
+            const job = jData.success ? jData.data.find((j: any) => j.jobId === jobId) : null;
+            if (job) {
+              setOcrSuccessMessage(`OCR running: ${job.donePages}/${job.totalPages || '?'} pages…`);
+            }
+            if (job && (job.status === 'done' || job.status === 'failed')) {
+              await refreshOcrResults();
+              setOcrSuccessMessage(
+                job.status === 'done'
+                  ? `OCR extracted text for ${job.donePages} pages!`
+                  : `OCR failed for ${job.failedOrders?.length || 0} page(s) — retry from dashboard.`
+              );
+              setTimeout(() => setOcrSuccessMessage(''), 4500);
+              setExtractingOcr(false);
+              return;
+            }
+          } catch {}
+          setTimeout(poll, 2000);
+        };
+        setTimeout(poll, 1500);
+        return; // keep spinner until job finishes
+      }
+
+      // Synchronous fallback (RabbitMQ unavailable)
+      await refreshOcrResults();
+      setOcrSuccessMessage(`OCR extracted text for ${data.done ?? data.data?.length ?? 0} pages!`);
+      setTimeout(() => setOcrSuccessMessage(''), 4500);
+      setExtractingOcr(false);
     } catch (err) {
       console.error(err);
       alert('OCR extraction request failed');
-    } finally {
       setExtractingOcr(false);
     }
   };

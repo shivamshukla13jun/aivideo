@@ -10,13 +10,6 @@ const nextConfig: NextConfig = {
         source: '/public/:path*',
         destination: '/:path*',
       },
-      {
-        // Same-origin proxy to Suwayomi so both servers share one domain/port.
-        // SUWAYOMI_URL is the FULL server-side base (includes the /suwayomi
-        // subpath in the all-in-one image) and is read at build/boot time.
-        source: '/suwayomi/:path*',
-        destination: `${(process.env.SUWAYOMI_URL || 'http://localhost:4567').replace(/\/+$/, '')}/:path*`,
-      },
     ];
   },
   async headers() {
@@ -58,6 +51,10 @@ const nextConfig: NextConfig = {
   
   output: 'standalone',
   transpilePackages: ['motion'],
+  // Keep tesseract.js external — it spawns its own Node worker threads, and
+  // bundling it rewrites the worker path to .next/worker-script/node/index.js
+  // which crashes dev mode with MODULE_NOT_FOUND.
+  serverExternalPackages: ['tesseract.js'],
   webpack: (config, { dev }) => {
     // HMR is disabled in AI Studio via DISABLE_HMR env var.
     // Do not modifyâfile watching is disabled to prevent flickering during agent edits.

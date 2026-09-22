@@ -1,32 +1,53 @@
-# ALL-IN-ONE deployment: one container runs BOTH Next.js and Suwayomi,
-# served from a single domain/port.
-#
-#   docker compose up -d --build      (or: npm run docker:up)
-#
-#   http://localhost:5000            -> Next.js app
-#   http://localhost:5000/suwayomi/* -> embedded Suwayomi (GraphQL, pages, thumbs)
-#   http://localhost:4567            -> Suwayomi WebUI/API (optional, for dev)
-
 services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: aivideo-app:latest
-    container_name: aivideo-app
-    ports:
-      - "${APP_PORT:-5000}:5000"   # the single public port for both apps
-      - "4567:4567"                # optional: direct Suwayomi access (dev/WebUI)
-    env_file:
-      - .env          # supplies MONGODB_URI, Cloudinary keys, GEMINI_API_KEY, etc.
-    environment:
-      # these must win over .env inside the container
-      SUWAYOMI_URL: http://127.0.0.1:4567/suwayomi
-      NEXT_PUBLIC_SUWAYOMI_URL: /suwayomi
-      # JAVA_OPTS: "-Xmx512m"      # limit JVM heap on small hosts
-    volumes:
-      - suwayomi_data:/home/suwayomi/.local/share/Tachidesk
+  suwayomi:
+    image: ghcr.io/suwayomi/suwayomi-server:stable
+    container_name: suwayomi
     restart: unless-stopped
 
-volumes:
-  suwayomi_data: # existing volume — holds the Suwayomi library/downloads
+    ports:
+      - "4567:4567"
+
+    environment:
+      TZ: Asia/Kolkata
+
+      # Server
+      BIND_IP: 0.0.0.0
+      BIND_PORT: 4567
+
+      # Headless/Docker
+      WEB_UI_ENABLED: "true"
+
+      # Download settings
+      DOWNLOAD_AS_CBZ: "true"
+
+      # Extension store
+      EXTENSION_STORES: >-
+        ["https://github.com/keiyoushi/extensions/raw/repo/index.pb"]
+
+      # Byparr / Cloudflare bypass
+      FLARESOLVERR_ENABLED: "true"
+      FLARESOLVERR_URL: "http://byparr:8191"
+    depends_on:
+      - byparr
+
+  byparr:
+    image: ghcr.io/thephaseless/byparr:latest
+    container_name: byparr
+    restart: unless-stopped
+
+    environment:
+      TZ: Asia/Kolkata
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq
+    restart: unless-stopped
+
+    ports:
+      - "5672:5672"     # AMQP
+      - "15672:15672"   # Management UI (guest/guest)
+
+    environment:
+      TZ: Asia/Kolkata
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
