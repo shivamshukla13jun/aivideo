@@ -2,16 +2,7 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: [
-    '**.*',
-    '*.ngrok-free.dev',
-    '*.ngrok.app',
-    '*.ngrok.io',
-    'overtone-shakily-overbook.ngrok-free.dev',
-    '*.loca.lt',
-    '*.trycloudflare.com',
-    'localhost',
-    '*.localhost',
-    '127.0.0.1',
+    '*',
   ],
   async rewrites() {
     return [
@@ -57,7 +48,7 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-
+  
   output: 'standalone',
   transpilePackages: ['motion'],
   webpack: (config, { dev }) => {
