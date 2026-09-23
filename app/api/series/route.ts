@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: `Could not connect to Suwayomi Server at port 4567: ${error.message}`,
+        error: `Could not connect to Suwayomi Server at port {SUWAYOMI_URL}: ${error.message}`,
         data: [],
       },
       { status: 500 }

@@ -9,8 +9,8 @@ import type { Channel, ChannelModel } from 'amqplib';
 import { OcrJob } from '@/models/OcrJob';
 import { runOcrJob } from '@/lib/ocrJob';
 import { connectDB } from '@/lib/mongodb';
+export const RABBITMQ_URL:string =process.env.NODE_ENV==="development" ?process.env.RABBITMQ_URL as string :process.env.RABBITMQ_PRODUCTION_URL as string
 
-const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
 export const OCR_QUEUE = 'ocr.extract';
 
 let connPromise: Promise<ChannelModel> | null = null;

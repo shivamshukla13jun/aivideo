@@ -3,7 +3,7 @@
  * Interacts with Suwayomi-Server running on port 4567 via GraphQL and REST endpoints.
  */
 
-export const SUWAYOMI_URL = process.env.SUWAYOMI_URL || 'http://localhost:4567';
+export const SUWAYOMI_URL:string =process.env.NODE_ENV==="development" ?process.env.SUWAYOMI_URL as string :process.env.SUWAYOMI_PRODUCTION_URL as string
 
 export function resolveSuwayomiUrl(url?: string | null): string {
   if (!url) return '';

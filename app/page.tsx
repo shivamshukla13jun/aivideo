@@ -5,6 +5,7 @@ import Navbar from '@/components/Navbar';
 import OcrJobsPanel from '@/components/OcrJobsPanel';
 import Link from 'next/link';
 import { BookOpen, Play, Search, Star, Clock, Layers, Server, RefreshCw } from 'lucide-react';
+import { SUWAYOMI_URL } from '@/lib/suwayomi';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,7 +83,7 @@ export default function HomePage() {
                 </span>
                 <span className="inline-flex items-center space-x-1 bg-emerald-600/80 text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full">
                   <Server className="w-3 h-3" />
-                  <span>Suwayomi :4567</span>
+                  <span>Suwayomi :{SUWAYOMI_URL}</span>
                 </span>
               </div>
               <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-white mb-3">
@@ -120,8 +121,8 @@ export default function HomePage() {
             <div className="flex items-center space-x-3">
               <Server className="w-5 h-5 text-red-400" />
               <div>
-                <p className="font-bold text-sm">Cannot reach Suwayomi Server at port 4567</p>
-                <p className="text-xs text-red-300">Ensure Suwayomi is running at http://localhost:4567</p>
+                <p className="font-bold text-sm">Cannot reach Suwayomi Server at port {SUWAYOMI_URL}</p>
+                <p className="text-xs text-red-300">Ensure Suwayomi is running at {SUWAYOMI_URL}</p>
               </div>
             </div>
             <button
@@ -236,7 +237,7 @@ export default function HomePage() {
           ) : filteredSeries.length === 0 ? (
             <div className="text-center py-16 bg-neutral-900/50 rounded-2xl border border-neutral-800">
               <p className="text-neutral-400 text-sm mb-2">No webtoons found matching your criteria in Suwayomi library.</p>
-              <p className="text-neutral-500 text-xs">Add webtoons to your Suwayomi server (http://localhost:4567) to see them here.</p>
+              <p className="text-neutral-500 text-xs">Add webtoons to your Suwayomi server ({SUWAYOMI_URL}) to see them here.</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
@@ -281,7 +282,7 @@ export default function HomePage() {
       </main>
 
       <footer className="border-t border-neutral-900 bg-neutral-950 py-8 text-center text-xs text-neutral-500">
-        <p>Webtoon Studio & Reader • Live Suwayomi Server Integration (:4567)</p>
+        <p>Webtoon Studio & Reader • Live Suwayomi Server Integration (:{SUWAYOMI_URL})</p>
       </footer>
     </div>
   );

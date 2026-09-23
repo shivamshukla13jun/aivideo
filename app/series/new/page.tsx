@@ -4,6 +4,7 @@ import React from 'react';
 import Navbar from '@/components/Navbar';
 import { Server, ArrowLeft, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
+import { SUWAYOMI_URL } from '@/lib/suwayomi';
 
 export default function NewSeriesPage() {
   return (
@@ -20,14 +21,14 @@ export default function NewSeriesPage() {
             Library Managed via Suwayomi
           </h1>
           <p className="text-neutral-400 text-sm leading-relaxed">
-            All webtoon series and chapters are directly fetched and synchronized from your local Suwayomi Server on port <strong>4567</strong>. Manual creation and CBZ archive uploads have been disabled.
+            All webtoon series and chapters are directly fetched and synchronized from your local Suwayomi Server on port <strong>{SUWAYOMI_URL}</strong>. Manual creation and CBZ archive uploads have been disabled.
           </p>
         </div>
 
         <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 text-left max-w-md w-full space-y-3">
           <h3 className="text-xs font-bold text-neutral-300 uppercase tracking-wider">How to add webtoons:</h3>
           <ol className="text-xs text-neutral-400 space-y-2 list-decimal list-inside">
-            <li>Open your Suwayomi WebUI at <code className="bg-neutral-950 px-2 py-0.5 rounded text-indigo-400">http://localhost:4567</code></li>
+            <li>Open your Suwayomi WebUI at <code className="bg-neutral-950 px-2 py-0.5 rounded text-indigo-400">{SUWAYOMI_URL}</code></li>
             <li>Browse sources or install extensions to find your favorite webtoon</li>
             <li>Click <strong>Add to Library</strong> in Suwayomi</li>
             <li>Return here to read, edit panels, and produce video scenes!</li>
@@ -43,12 +44,12 @@ export default function NewSeriesPage() {
             <span>Return to Explore</span>
           </Link>
           <a
-            href="http://localhost:4567"
+            href={SUWAYOMI_URL}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center space-x-2 bg-neutral-900 hover:bg-neutral-800 text-neutral-200 font-semibold px-6 py-2.5 rounded-xl text-sm transition-all border border-neutral-800"
           >
-            <span>Open Suwayomi :4567</span>
+            <span>Open Suwayomi</span>
             <ExternalLink className="w-4 h-4 text-neutral-400" />
           </a>
         </div>

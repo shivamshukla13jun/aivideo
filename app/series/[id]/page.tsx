@@ -5,6 +5,7 @@ import Navbar from '@/components/Navbar';
 import Link from 'next/link';
 import Image from 'next/image';
 import { BookOpen, Edit3, Film, Library, ArrowLeft, RefreshCw, Loader2, CheckCircle2, Server } from 'lucide-react';
+import { SUWAYOMI_URL } from '@/lib/suwayomi';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,7 +90,7 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
         <Navbar />
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
           <h1 className="text-xl font-bold mb-2">Series Not Found in Suwayomi Library</h1>
-          <p className="text-neutral-400 text-sm mb-4">Ensure this webtoon is added to your Suwayomi library on port 4567.</p>
+          <p className="text-neutral-400 text-sm mb-4">Ensure this webtoon is added to your Suwayomi library on port {SUWAYOMI_URL}.</p>
           <Link href="/" className="text-indigo-400 hover:underline">Return to Explore</Link>
         </div>
       </div>
@@ -172,7 +173,7 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
             <BookOpen className="w-5 h-5 text-indigo-400" />
             <span>Chapters ({chapters.length})</span>
           </h2>
-          <span className="text-xs text-neutral-400">Fetched directly from Suwayomi :4567</span>
+          <span className="text-xs text-neutral-400">Fetched directly from Suwayomi :{SUWAYOMI_URL}</span>
         </div>
 
         {chapters.length === 0 ? (
