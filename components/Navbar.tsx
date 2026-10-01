@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Sparkles, Home, Library, Server } from 'lucide-react';
+import { Sparkles, Home, Library, Server, Youtube } from 'lucide-react';
 import { SUWAYOMI_URL } from '@/lib/suwayomi';
 
 export default function Navbar() {
@@ -22,6 +22,10 @@ export default function Navbar() {
             <Link href="/library" className="hover:text-white transition-colors flex items-center space-x-1.5">
               <Library className="w-4 h-4" />
               <span>My Library</span>
+            </Link>
+            <Link href="/youtube" className="hover:text-white transition-colors flex items-center space-x-1.5">
+              <Youtube className="w-4 h-4 text-red-500" />
+              <span>YouTube</span>
             </Link>
           </nav>
         </div>

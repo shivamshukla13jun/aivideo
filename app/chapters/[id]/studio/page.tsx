@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, use, useRef } from 'react';
 import Navbar from '@/components/Navbar';
+import YouTubePublishPanel from '@/components/YouTubePublishPanel';
 import Link from 'next/link';
 import {
   Film,
@@ -30,6 +31,7 @@ import {
   ScanText,
   Sliders,
   Wand2,
+  Youtube,
   SkipForward,
   SkipBack,
   RefreshCw,
@@ -65,6 +67,9 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   // OCR Extraction States
   const [extractingOcr, setExtractingOcr] = useState(false);
   const [ocrSuccessMessage, setOcrSuccessMessage] = useState('');
+
+  // YouTube Publish Panel
+  const [showPublishPanel, setShowPublishPanel] = useState(false);
 
   // Live Video Rendering & Player States
   const [isPlaying, setIsPlaying] = useState(false);
@@ -117,16 +122,17 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   useEffect(() => {
     if (!isPlaying || !activeScene) {
       if (playbackTimerRef.current) clearInterval(playbackTimerRef.current);
-      setPlaybackProgress(0);
+      const resetTimer = setTimeout(() => setPlaybackProgress(0), 0);
       if (audioPlayerRef.current) {
         audioPlayerRef.current.pause();
       }
-      return;
+      return () => clearTimeout(resetTimer);
     }
 
     // Trigger visual flash if set
+    let flashTimer: NodeJS.Timeout | undefined;
     if (activeScene.visualEffect === 'flash') {
-      setFlashKey((prev) => prev + 1);
+      flashTimer = setTimeout(() => setFlashKey((prev) => prev + 1), 0);
     }
 
     // Play attached scene audio in sync
@@ -167,6 +173,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
 
     return () => {
       if (playbackTimerRef.current) clearInterval(playbackTimerRef.current);
+      if (flashTimer) clearTimeout(flashTimer);
     };
   }, [isPlaying, activeScene, scenes]);
 
@@ -608,6 +615,15 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
             <Edit3 className="w-3.5 h-3.5 text-indigo-400" />
             <span>Panel Editor</span>
           </Link>
+
+          <button
+            type="button"
+            onClick={() => setShowPublishPanel(true)}
+            className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow"
+          >
+            <Youtube className="w-3.5 h-3.5" />
+            <span>Publish to YouTube</span>
+          </button>
 
           <div className="flex items-center space-x-2 text-xs text-neutral-400 bg-neutral-950 px-3 py-1.5 rounded-xl border border-neutral-800">
             {saveStatus === 'saving' && (
@@ -1302,6 +1318,15 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
         </div>
 
       </div>
+
+      {showPublishPanel && (
+        <YouTubePublishPanel
+          chapterId={chapterId}
+          chapterTitle={chapter?.title}
+          scenes={scenes}
+          onClose={() => setShowPublishPanel(false)}
+        />
+      )}
     </div>
   );
 }
