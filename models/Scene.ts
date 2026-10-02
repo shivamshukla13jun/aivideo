@@ -6,6 +6,8 @@ export interface ISceneDoc extends Document {
   order: number;
   title: string;
   narration?: string;
+  /** Hindi narration / subtitle (Devanagari). */
+  narrationHi?: string;
   dialogue?: string;
   description?: string;
   duration: number;
@@ -22,6 +24,15 @@ export interface ISceneDoc extends Document {
   transition?: string;
   zoom: number;
   pan: { x: number; y: number };
+  imageWidth?: number;
+  imageHeight?: number;
+  camera?: {
+    start: { cx: number; cy: number; zoom: number };
+    end: { cx: number; cy: number; zoom: number };
+    easing: string;
+  };
+  cuts?: { top: number; bottom: number }[];
+  hideBoxes?: { x: number; y: number; width: number; height: number; mode: string }[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -33,6 +44,7 @@ const SceneSchema = new Schema<ISceneDoc>(
     order: { type: Number, required: true },
     title: { type: String, required: true },
     narration: { type: String },
+    narrationHi: { type: String, default: '' },
     dialogue: { type: String },
     description: { type: String },
     duration: { type: Number, default: 5 },
@@ -52,8 +64,37 @@ const SceneSchema = new Schema<ISceneDoc>(
       x: { type: Number, default: 0 },
       y: { type: Number, default: 0 },
     },
+    imageWidth: { type: Number },
+    imageHeight: { type: Number },
+    camera: {
+      type: new Schema(
+        {
+          start: { cx: Number, cy: Number, zoom: Number },
+          end: { cx: Number, cy: Number, zoom: Number },
+          easing: { type: String, default: 'linear' },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
+    cuts: {
+      type: [new Schema({ top: Number, bottom: Number }, { _id: false })],
+      default: [],
+    },
+    hideBoxes: {
+      type: [
+        new Schema(
+          { x: Number, y: Number, width: Number, height: Number, mode: { type: String, default: 'blur' } },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
   },
   { timestamps: true }
 );
+
+// A model cached by hot reload with an older schema would silently drop the newer fields
+if (mongoose.models.Scene && !mongoose.models.Scene.schema.path('narrationHi')) mongoose.deleteModel('Scene');
 
 export const Scene: Model<ISceneDoc> = mongoose.models.Scene || mongoose.model<ISceneDoc>('Scene', SceneSchema);

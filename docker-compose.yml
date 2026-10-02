@@ -27,6 +27,7 @@ services:
       # Byparr / Cloudflare bypass
       FLARESOLVERR_ENABLED: "true"
       FLARESOLVERR_URL: "http://byparr:8191"
+
     depends_on:
       - byparr
 
@@ -38,16 +39,51 @@ services:
     environment:
       TZ: Asia/Kolkata
 
+  manga-translator:
+    image: zyddnys/manga-image-translator:main
+    container_name: manga-translator
+    restart: unless-stopped
+
+    ports:
+      - "5003:5003"
+
+    ipc: host
+
+    volumes:
+      - manga_models:/app/models
+      - manga_cache:/root/.cache
+      - manga_result:/app/result
+
+    entrypoint: python
+
+    command:
+      - server/main.py
+      - --verbose
+      - --start-instance
+      - --host=0.0.0.0
+      - --port=5003
+
   # rabbitmq:
   #   image: rabbitmq:3-management
   #   container_name: rabbitmq
+  #   restart: unless-stopped
+  #
   #   ports:
   #     - "5672:5672"
   #     - "15672:15672"
-  #   restart: unless-stopped
+  #
   #   volumes:
   #     - rabbitmq_data:/var/lib/rabbitmq
+  #
   #   environment:
   #     RABBITMQ_DEFAULT_USER: admin
   #     RABBITMQ_DEFAULT_PASS: admin123
-  #     TZ: Asia/Kolkata 
+  #     TZ: Asia/Kolkata
+
+volumes:
+  manga_models:
+  manga_cache:
+  manga_result:
+
+  # rabbitmq_data:
+  #   name: rabbitmq_data

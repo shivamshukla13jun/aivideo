@@ -4,6 +4,7 @@ import { OcrJob } from '@/models/OcrJob';
 import { getChapterDetails, getMangaDetails } from '@/lib/suwayomi';
 import { publishOcrJob } from '@/lib/queue';
 import { runOcrJob } from '@/lib/ocrJob';
+import { isProviderAvailable } from '@/lib/ocr';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +19,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const body = await req.json().catch(() => ({}));
     const targetOrders: number[] | null = Array.isArray(body.orders) ? body.orders : null;
+    const provider = typeof body.provider === 'string' ? body.provider : 'tesseract';
+    if (!isProviderAvailable(provider)) {
+      return NextResponse.json(
+        { success: false, error: `OCR provider "${provider}" is not configured — add its API key to .env` },
+        { status: 400 }
+      );
+    }
 
     await connectDB();
 
@@ -46,6 +54,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       seriesId,
       seriesTitle,
       chapterName,
+      provider,
+      overwriteScenes: Boolean(body.overwrite),
       status: 'queued',
       totalPages: targetOrders ? targetOrders.length : 0,
       donePages: 0,

@@ -19,7 +19,13 @@ export interface IPageDoc extends Document {
   originalUrl: string;
   editedUrl?: string;
   publicId?: string;
+  /** English narration text extracted by OCR. */
   extractedText?: string;
+  /** Hindi narration text (Devanagari). */
+  extractedTextHi?: string;
+  /** Raw OCR lines (reading order). */
+  ocrRaw?: string;
+  ocrProvider?: string;
   panels: any[];
   status: 'active' | 'deleted' | 'split';
   createdAt: Date;
@@ -35,10 +41,16 @@ const PageSchema = new Schema<IPageDoc>(
     editedUrl: { type: String },
     publicId: { type: String, default: '' },
     extractedText: { type: String, default: '' },
+    extractedTextHi: { type: String, default: '' },
+    ocrRaw: { type: String, default: '' },
+    ocrProvider: { type: String, default: '' },
     panels: [PanelSchema],
     status: { type: String, enum: ['active', 'deleted', 'split'], default: 'active' },
   },
   { timestamps: true }
 );
+
+// A model cached by hot reload with an older schema would silently drop the newer fields
+if (mongoose.models.Page && !mongoose.models.Page.schema.path('extractedTextHi')) mongoose.deleteModel('Page');
 
 export const Page: Model<IPageDoc> = mongoose.models.Page || mongoose.model<IPageDoc>('Page', PageSchema);

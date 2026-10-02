@@ -31,7 +31,7 @@ export default function NewSeriesPage() {
             <li>Open your Suwayomi WebUI at <code className="bg-neutral-950 px-2 py-0.5 rounded text-indigo-400">{SUWAYOMI_URL}</code></li>
             <li>Browse sources or install extensions to find your favorite webtoon</li>
             <li>Click <strong>Add to Library</strong> in Suwayomi</li>
-            <li>Return here to read, edit panels, and produce video scenes!</li>
+            <li>Return here to read and produce video scenes from panels in the Studio!</li>
           </ol>
         </div>
 

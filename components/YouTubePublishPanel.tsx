@@ -18,7 +18,10 @@ import {
   RefreshCw,
   Clapperboard,
 } from 'lucide-react';
-import { renderVideoToBlob, RenderSceneInput } from '@/lib/videoRenderer';
+import { renderMediaOnWeb } from '@remotion/web-renderer';
+import { WebtoonVideo } from '@/components/video/WebtoonVideo';
+import { Aspect, FPS, FRAME_SIZE } from '@/lib/video/camera';
+import { buildVideoProps, computeTimeline } from '@/lib/video/project';
 
 interface YouTubeAccountLite {
   _id: string;
@@ -42,10 +45,12 @@ interface Props {
   chapterId: string;
   chapterTitle?: string;
   scenes: any[];
+  aspect: Aspect;
+  showSubtitles: boolean;
   onClose: () => void;
 }
 
-export default function YouTubePublishPanel({ chapterId, chapterTitle, scenes, onClose }: Props) {
+export default function YouTubePublishPanel({ chapterId, chapterTitle, scenes, aspect, showSubtitles, onClose }: Props) {
   const [accounts, setAccounts] = useState<YouTubeAccountLite[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(true);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
@@ -56,7 +61,12 @@ export default function YouTubePublishPanel({ chapterId, chapterTitle, scenes, o
   const [rendering, setRendering] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
   const [renderLabel, setRenderLabel] = useState('');
-  const cancelRenderRef = useRef(false);
+  const renderAbortRef = useRef<AbortController | null>(null);
+  const [downloadUrl, setDownloadUrl] = useState('');
+
+  useEffect(() => () => {
+    if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+  }, [downloadUrl]);
 
   // SEO fields
   const [generatingSeo, setGeneratingSeo] = useState(false);
@@ -112,29 +122,42 @@ export default function YouTubePublishPanel({ chapterId, chapterTitle, scenes, o
     }
     setRendering(true);
     setRenderProgress(0);
-    cancelRenderRef.current = false;
+    setRenderLabel('Preparing render…');
+    const controller = new AbortController();
+    renderAbortRef.current = controller;
     try {
-      const input: RenderSceneInput[] = scenes.map((s) => ({
-        image: s.image,
-        duration: s.duration || 5,
-        effects: s.effects,
-        visualEffect: s.visualEffect,
-        transition: s.transition,
-        audioUrl: s.audio?.cloudinaryUrl || null,
-      }));
-      const blob = await renderVideoToBlob(input, {
-        onProgress: (pct, label) => {
-          setRenderProgress(pct);
-          setRenderLabel(label);
+      const props = buildVideoProps(scenes, aspect, showSubtitles);
+      const { durationInFrames } = computeTimeline(props.scenes);
+      const { width, height } = FRAME_SIZE[aspect];
+      const { getBlob } = await renderMediaOnWeb({
+        composition: {
+          id: 'webtoon-video',
+          component: WebtoonVideo,
+          durationInFrames,
+          fps: FPS,
+          width,
+          height,
+          defaultProps: props,
         },
-        shouldCancel: () => cancelRenderRef.current,
+        inputProps: props,
+        container: 'mp4',
+        videoBitrate: 'high',
+        signal: controller.signal,
+        delayRenderTimeoutInMilliseconds: 120000,
+        onProgress: ({ progress, encodedFrames }) => {
+          setRenderProgress(Math.min(99, Math.round(progress * 100)));
+          setRenderLabel(`Encoding frame ${encodedFrames}/${durationInFrames}`);
+        },
       });
+      const blob = await getBlob();
       setVideoBlob(blob);
-      setVideoName(`${(chapterTitle || 'video').replace(/[^a-z0-9]+/gi, '_')}_${Date.now()}.webm`);
+      setVideoName(`${(chapterTitle || 'video').replace(/[^a-z0-9]+/gi, '_')}_${aspect.replace(':', 'x')}_${Date.now()}.mp4`);
+      setDownloadUrl(URL.createObjectURL(blob));
       setError('');
     } catch (e: any) {
-      if (e.message !== 'cancelled') setError(e.message || 'Render failed');
+      if (!controller.signal.aborted) setError(e.message || 'Render failed');
     } finally {
+      renderAbortRef.current = null;
       setRendering(false);
     }
   };
@@ -258,7 +281,7 @@ export default function YouTubePublishPanel({ chapterId, chapterTitle, scenes, o
                 className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold py-3 px-4 rounded-xl flex items-center justify-center space-x-2 disabled:opacity-50 transition-all"
               >
                 {rendering ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileVideo className="w-4 h-4" />}
-                <span>{rendering ? 'Rendering…' : `Render Studio Video (${scenes.length} scenes)`}</span>
+                <span>{rendering ? 'Rendering…' : `Render MP4 ${aspect} (${scenes.length} scenes)`}</span>
               </button>
               <label className="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 text-xs font-bold py-3 px-4 rounded-xl flex items-center justify-center space-x-2 cursor-pointer transition-all">
                 <UploadCloud className="w-4 h-4 text-indigo-400" />
@@ -272,19 +295,24 @@ export default function YouTubePublishPanel({ chapterId, chapterTitle, scenes, o
                   <span>{renderLabel || 'Rendering…'}</span>
                   <div className="flex items-center space-x-2">
                     <span>{renderProgress}%</span>
-                    <button onClick={() => (cancelRenderRef.current = true)} className="text-red-400 hover:text-red-300 font-semibold">Cancel</button>
+                    <button onClick={() => renderAbortRef.current?.abort()} className="text-red-400 hover:text-red-300 font-semibold">Cancel</button>
                   </div>
                 </div>
                 <div className="w-full bg-neutral-800 h-2 rounded-full overflow-hidden">
                   <div className="bg-gradient-to-r from-indigo-500 to-purple-500 h-full transition-all" style={{ width: `${renderProgress}%` }} />
                 </div>
-                <p className="text-[10px] text-neutral-500">Rendering happens in real-time — keep this tab open.</p>
+                <p className="text-[10px] text-neutral-500">Rendering in your browser (WebCodecs) — keep this tab visible for best speed.</p>
               </div>
             )}
             {videoBlob && !rendering && (
               <div className="mt-3 flex items-center space-x-2 text-xs text-emerald-400 bg-emerald-950/40 border border-emerald-900/50 rounded-xl p-2.5">
                 <CheckCircle2 className="w-4 h-4" />
-                <span className="truncate">Ready: {videoName} ({(videoBlob.size / 1024 / 1024).toFixed(1)} MB)</span>
+                <span className="truncate flex-1">Ready: {videoName} ({(videoBlob.size / 1024 / 1024).toFixed(1)} MB)</span>
+                {downloadUrl && (
+                  <a href={downloadUrl} download={videoName} className="text-indigo-300 hover:text-indigo-200 font-semibold">
+                    Download MP4
+                  </a>
+                )}
               </div>
             )}
           </section>

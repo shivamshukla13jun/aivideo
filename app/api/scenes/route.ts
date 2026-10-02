@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     await connectDB();
 
     // Clean narration: if missing or generic placeholder, try to load page's extractedText or keep empty
-    if (!body.narration || body.narration.startsWith('Narration for Page')) {
+    if (body.narration == null || body.narration.startsWith('Narration for Page')) {
       const { Page } = await import('@/models/Page');
       let pageDoc: any = null;
       if (body.pageId) {
