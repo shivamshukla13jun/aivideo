@@ -1,27 +1,30 @@
 {
-    "name": "Suwayomi Codespace",
-    "dockerComposeFile": "docker-compose.yml",
-    "service": "workspace",
-    "workspaceFolder": "/workspace/${localWorkspaceFolderBasename}",
+"name": "Suwayomi Codespace",
+"dockerComposeFile": [
+"docker-compose.yml"
+],
+"service": "workspace",
+"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
 
-    "forwardPorts": [4567],
+"forwardPorts": [
+4567
+],
 
-    "portsAttributes": {
-    "4567": {
-    "label": "Suwayomi Web UI",
-    "onAutoForward": "openBrowser",
-    "protocol": "http"
-    }
-    },
+"portsAttributes": {
+"4567": {
+"label": "Suwayomi Web UI",
+"onAutoForward": "openBrowser",
+"protocol": "http"
+}
+},
 
-    "customizations": {
-    "vscode": {
-    "extensions": [
-    "ms-azuretools.vscode-docker"
-    ]
-    }
-    },
+"customizations": {
+"vscode": {
+"extensions": [
+"ms-azuretools.vscode-docker"
+]
+}
+},
 
-    "remoteUser": "vscode"
-    }
+"remoteUser": "vscode"
 }
