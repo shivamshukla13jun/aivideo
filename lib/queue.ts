@@ -45,15 +45,23 @@ async function getChannel(): Promise<Channel> {
   return channelPromise;
 }
 
-/** Enqueue an OCR job for background processing. Returns false if the broker is unreachable. */
+/** Enqueue an OCR job for background processing. Runs inline if RabbitMQ broker is unreachable. */
 export async function publishOcrJob(jobId: string): Promise<boolean> {
   try {
     const ch = await getChannel();
     ch.sendToQueue(OCR_QUEUE, Buffer.from(JSON.stringify({ jobId })), { persistent: true });
     return true;
   } catch (err) {
-    console.warn('[Queue] RabbitMQ unreachable, cannot enqueue OCR job:', (err as Error)?.message);
-    return false;
+    console.warn('[Queue] RabbitMQ unreachable, executing OCR job inline/background:', (err as Error)?.message);
+    setTimeout(async () => {
+      try {
+        await connectDB();
+        await runOcrJob(jobId);
+      } catch (jobErr) {
+        console.error('[Queue] Inline OCR job execution failed:', jobErr);
+      }
+    }, 100);
+    return true;
   }
 }
 

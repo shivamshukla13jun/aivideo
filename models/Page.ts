@@ -27,6 +27,8 @@ export interface IPageDoc extends Document {
   ocrRaw?: string;
   ocrProvider?: string;
   panels: any[];
+  isSplitPart?: boolean;
+  sourcePageId?: string;
   status: 'active' | 'deleted' | 'split';
   createdAt: Date;
   updatedAt: Date;
@@ -45,6 +47,8 @@ const PageSchema = new Schema<IPageDoc>(
     ocrRaw: { type: String, default: '' },
     ocrProvider: { type: String, default: '' },
     panels: [PanelSchema],
+    isSplitPart: { type: Boolean, default: false },
+    sourcePageId: { type: String, default: '' },
     status: { type: String, enum: ['active', 'deleted', 'split'], default: 'active' },
   },
   { timestamps: true }

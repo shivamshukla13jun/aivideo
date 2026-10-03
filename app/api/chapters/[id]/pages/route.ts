@@ -8,53 +8,72 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const numericId = parseInt(id, 10);
+    await connectDB();
 
-    if (isNaN(numericId)) {
-      return NextResponse.json({ success: false, error: 'Invalid chapter id' }, { status: 400 });
-    }
+    // 1. Fetch pages from MongoDB (works for both local chapters and edited Suwayomi chapters)
+    const localPages = await Page.find({ chapterId: id, status: { $ne: 'deleted' } })
+      .sort({ order: 1 })
+      .lean();
 
-    // 1. Fetch live chapter pages from Suwayomi
-    const { pages } = await getChapterPages(numericId);
-
-    // 2. Fetch any locally edited pages or panels from MongoDB if exist
-    let localPagesMap: Record<number, any> = {};
-    try {
-      await connectDB();
-      const localPages = await Page.find({ chapterId: id, status: { $ne: 'deleted' } });
-      localPages.forEach(lp => {
-        localPagesMap[lp.order] = lp;
-      });
-    } catch {
-      // Local db connection optional for reading Suwayomi pages
-    }
-
-    // 3. Construct unified page list
-    const resultPages = pages.map((pageUrl, idx) => {
-      const order = idx + 1;
-      const local = localPagesMap[order];
-      return {
-        _id: local?._id ? String(local._id) : `${id}_page_${idx}`,
+    if (localPages.length > 0) {
+      const result = localPages.map((lp: any) => ({
+        _id: String(lp._id),
         chapterId: id,
-        order,
-        originalUrl: pageUrl,
-        editedUrl: local?.editedUrl || pageUrl,
-        panels: local?.panels || [],
-        extractedText: local?.extractedText || '',
-        extractedTextHi: local?.extractedTextHi || '',
-        ocrProvider: local?.ocrProvider || '',
-        status: local?.status || 'active',
-      };
-    });
+        order: lp.order,
+        originalUrl: lp.originalUrl,
+        editedUrl: lp.editedUrl || lp.originalUrl,
+        panels: lp.panels || [],
+        extractedText: lp.extractedText || '',
+        extractedTextHi: lp.extractedTextHi || '',
+        ocrProvider: lp.ocrProvider || '',
+        isSplitPart: Boolean(lp.isSplitPart),
+        status: lp.status || 'active',
+      }));
+
+      return NextResponse.json({
+        success: true,
+        data: result,
+        total: result.length,
+        source: 'mongodb',
+      });
+    }
+
+    // 2. If no local pages, try Suwayomi if numeric ID
+    const numericId = parseInt(id, 10);
+    if (!isNaN(numericId)) {
+      try {
+        const { pages } = await getChapterPages(numericId);
+        const resultPages = pages.map((pageUrl, idx) => ({
+          _id: `${id}_page_${idx}`,
+          chapterId: id,
+          order: idx + 1,
+          originalUrl: pageUrl,
+          editedUrl: pageUrl,
+          panels: [],
+          extractedText: '',
+          extractedTextHi: '',
+          ocrProvider: '',
+          status: 'active',
+        }));
+
+        return NextResponse.json({
+          success: true,
+          data: resultPages,
+          total: resultPages.length,
+          source: 'suwayomi',
+        });
+      } catch (suwaErr: any) {
+        console.warn('Suwayomi pages fetch failed:', suwaErr?.message);
+      }
+    }
 
     return NextResponse.json({
       success: true,
-      data: resultPages,
-      total: resultPages.length,
-      source: 'suwayomi',
+      data: [],
+      total: 0,
     });
   } catch (error: any) {
-    console.error(`Error fetching pages for chapter ${params}:`, error);
+    console.error(`Error fetching pages for chapter:`, error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

@@ -167,7 +167,12 @@ const SceneView: React.FC<{ scene: VideoScene; showSubtitles: boolean }> = ({ sc
   );
 };
 
-export const WebtoonVideo: React.FC<WebtoonVideoProps> = ({ scenes, showSubtitles }) => {
+export const WebtoonVideo: React.FC<WebtoonVideoProps> = ({
+  scenes,
+  showSubtitles,
+  globalAudioUrl,
+  globalAudioVolume = 1,
+}) => {
   if (scenes.length === 0) {
     return <AbsoluteFill style={{ backgroundColor: '#000' }} />;
   }
@@ -193,6 +198,9 @@ export const WebtoonVideo: React.FC<WebtoonVideoProps> = ({ scenes, showSubtitle
   return (
     <AbsoluteFill style={{ backgroundColor: '#000' }}>
       <TransitionSeries>{children}</TransitionSeries>
+      {globalAudioUrl && (
+        <Audio src={globalAudioUrl} volume={typeof globalAudioVolume === 'number' ? globalAudioVolume : 1} />
+      )}
     </AbsoluteFill>
   );
 };

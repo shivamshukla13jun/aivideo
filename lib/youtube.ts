@@ -16,7 +16,7 @@ export function isYouTubeConfigured(): boolean {
 }
 
 export function getRedirectUri(origin?: string): string {
-  const base = (process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || origin || 'http://localhost:5000').replace(/\/$/, '');
+  const base = (process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || origin || 'http://localhost:3000').replace(/\/$/, '');
   return `${base}/api/youtube/auth/callback`;
 }
 

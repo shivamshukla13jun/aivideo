@@ -3,7 +3,11 @@
  * Interacts with Suwayomi-Server running on port 4567 via GraphQL and REST endpoints.
  */
 
-export const SUWAYOMI_URL:string =process.env.NODE_ENV==="development" ?process.env.SUWAYOMI_URL as string :process.env.SUWAYOMI_PRODUCTION_URL as string
+export const SUWAYOMI_URL: string =
+  process.env.NEXT_PUBLIC_SUWAYOMI_URL ||
+  (process.env.NODE_ENV === 'development'
+    ? (process.env.SUWAYOMI_URL as string) || 'http://127.0.0.1:4567'
+    : (process.env.SUWAYOMI_PRODUCTION_URL as string) || 'http://127.0.0.1:4567');
 
 export function resolveSuwayomiUrl(url?: string | null): string {
   if (!url) return '';
@@ -17,7 +21,8 @@ export function resolveSuwayomiUrl(url?: string | null): string {
 
 export async function querySuwayomi<T = any>(
   query: string,
-  variables: Record<string, any> = {}
+  variables: Record<string, any> = {},
+  timeoutMs: number = 8000
 ): Promise<T> {
   const endpoint = `${SUWAYOMI_URL.replace(/\/+$/, '')}/api/graphql`;
   const res = await fetch(endpoint, {
@@ -28,6 +33,7 @@ export async function querySuwayomi<T = any>(
     },
     body: JSON.stringify({ query, variables }),
     cache: 'no-store',
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!res.ok) {
@@ -206,7 +212,7 @@ export async function getChapterPages(chapterId: number): Promise<{ pageCount: n
       chapter: { id: number; pageCount: number; isDownloaded: boolean };
       pages: string[];
     };
-  }>(query, { chapterId });
+  }>(query, { chapterId }, 15000);
 
   const rawPages = data?.fetchChapterPages?.pages || [];
   return {

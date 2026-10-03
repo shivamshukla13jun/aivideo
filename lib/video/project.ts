@@ -35,6 +35,8 @@ export interface WebtoonVideoProps {
   scenes: VideoScene[];
   aspect: Aspect;
   showSubtitles: boolean;
+  globalAudioUrl?: string | null;
+  globalAudioVolume?: number;
 }
 
 /** Remote images go through the same-origin proxy so they can be drawn to a canvas on export. */
@@ -72,7 +74,13 @@ export function sceneCamera(scene: any, aspect: Aspect): Camera {
   };
 }
 
-export function buildVideoProps(scenes: any[], aspect: Aspect, showSubtitles: boolean): WebtoonVideoProps {
+export function buildVideoProps(
+  scenes: any[],
+  aspect: Aspect,
+  showSubtitles: boolean,
+  globalAudioUrl?: string | null,
+  globalAudioVolume: number = 1
+): WebtoonVideoProps {
   const videoScenes = scenes
     .filter((s) => s.image && s.imageWidth && s.imageHeight)
     .map<VideoScene>((s) => ({
@@ -91,7 +99,13 @@ export function buildVideoProps(scenes: any[], aspect: Aspect, showSubtitles: bo
       narration: s.narration || '',
       narrationHi: s.narrationHi || '',
     }));
-  return { scenes: videoScenes, aspect, showSubtitles };
+  return {
+    scenes: videoScenes,
+    aspect,
+    showSubtitles,
+    globalAudioUrl: globalAudioUrl ? toVideoSrc(globalAudioUrl) : null,
+    globalAudioVolume,
+  };
 }
 
 export const hasTransitionIn = (scenes: VideoScene[], i: number) => i > 0 && scenes[i].transition !== 'none';

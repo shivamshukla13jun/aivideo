@@ -13,6 +13,7 @@ export interface ISeriesDoc extends Document {
   language: string;
   releaseYear: number;
   chapters: mongoose.Types.ObjectId[];
+  source?: 'local' | 'suwayomi';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -31,8 +32,13 @@ const SeriesSchema = new Schema<ISeriesDoc>(
     language: { type: String, default: 'English' },
     releaseYear: { type: Number, default: new Date().getFullYear() },
     chapters: [{ type: Schema.Types.ObjectId, ref: 'Chapter' }],
+    source: { type: String, default: 'local' },
   },
   { timestamps: true }
 );
+
+if (mongoose.models.Series && !mongoose.models.Series.schema.path('source')) {
+  mongoose.deleteModel('Series');
+}
 
 export const Series: Model<ISeriesDoc> = mongoose.models.Series || mongoose.model<ISeriesDoc>('Series', SeriesSchema);

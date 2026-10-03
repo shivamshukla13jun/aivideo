@@ -53,6 +53,10 @@ import {
   Eraser,
   Languages,
   RefreshCw,
+  Radio,
+  Upload,
+  VolumeX,
+  CheckCircle2,
 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
@@ -89,6 +93,24 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+
+  // Master Dubbing States (Overall Dub for all scenes)
+  const [masterAudio, setMasterAudio] = useState<{
+    url: string;
+    volume: number;
+    duration?: number;
+    fileName?: string;
+  } | null>(null);
+  const [isMasterRecording, setIsMasterRecording] = useState(false);
+  const [masterRecSeconds, setMasterRecSeconds] = useState(0);
+  const [uploadingMasterAudio, setUploadingMasterAudio] = useState(false);
+  const masterRecorderRef = useRef<MediaRecorder | null>(null);
+  const masterChunksRef = useRef<Blob[]>([]);
+  const masterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Mihon Tall Image Splitter State
+  const [splittingTall, setSplittingTall] = useState(false);
+  const [splitTallMessage, setSplitTallMessage] = useState('');
 
   // OCR Extraction States
   const [extractingOcr, setExtractingOcr] = useState(false);
@@ -157,7 +179,12 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
         const pData = await pagesRes.json();
         const sData = await scenesRes.json();
 
-        if (cData.success) setChapter(cData.data);
+        if (cData.success) {
+          setChapter(cData.data);
+          if (cData.data.audioTrack?.url) {
+            setMasterAudio(cData.data.audioTrack);
+          }
+        }
         if (pData.success) setPages(pData.data);
         if (sData.success) {
           // Clean out legacy "Narration for Page..." placeholders from previous versions
@@ -198,7 +225,10 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
     })();
   }, [scenes]);
 
-  const videoProps = useMemo(() => buildVideoProps(scenes, aspect, showSubtitles), [scenes, aspect, showSubtitles]);
+  const videoProps = useMemo(
+    () => buildVideoProps(scenes, aspect, showSubtitles, masterAudio?.url, masterAudio?.volume ?? 1),
+    [scenes, aspect, showSubtitles, masterAudio]
+  );
   const timeline = useMemo(() => computeTimeline(videoProps.scenes), [videoProps.scenes]);
   const frameSize = FRAME_SIZE[aspect];
 
@@ -649,6 +679,129 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
     }
   };
 
+  // Master Dubbing Handlers (Dub Over All Scenes)
+  const startMasterDubRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      masterRecorderRef.current = recorder;
+      masterChunksRef.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) masterChunksRef.current.push(event.data);
+      };
+
+      recorder.onstop = async () => {
+        if (masterTimerRef.current) clearInterval(masterTimerRef.current);
+        const audioBlob = new Blob(masterChunksRef.current, { type: 'audio/webm' });
+        const file = new File([audioBlob], `master_dub_${chapterId}_${Date.now()}.webm`, {
+          type: 'audio/webm',
+        });
+        await handleUploadMasterAudio(file, masterRecSeconds);
+        setIsMasterRecording(false);
+        setMasterRecSeconds(0);
+      };
+
+      recorder.start();
+      setIsMasterRecording(true);
+      setMasterRecSeconds(0);
+
+      // Start video playback from 0 or playhead to sync dubbing in real-time
+      playerRef.current?.seekTo(0);
+      setPlayheadFrame(0);
+      playerRef.current?.play();
+
+      masterTimerRef.current = setInterval(() => {
+        setMasterRecSeconds((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error(err);
+      alert('Microphone access denied or not available');
+    }
+  };
+
+  const stopMasterDubRecording = () => {
+    if (masterRecorderRef.current && isMasterRecording) {
+      masterRecorderRef.current.stop();
+      masterRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
+      playerRef.current?.pause();
+      if (masterTimerRef.current) clearInterval(masterTimerRef.current);
+    }
+  };
+
+  const handleUploadMasterAudio = async (file: File, dur?: number) => {
+    setUploadingMasterAudio(true);
+    try {
+      const formData = new FormData();
+      formData.append('audioFile', file);
+      if (dur) formData.append('duration', String(dur));
+
+      const res = await fetch(`/api/chapters/${chapterId}/audio`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMasterAudio(data.data);
+      } else {
+        throw new Error(data.error || 'Failed to save master dub');
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert('Master dub upload failed: ' + e.message);
+    } finally {
+      setUploadingMasterAudio(false);
+    }
+  };
+
+  const handleRemoveMasterDub = async () => {
+    if (!confirm('Remove the master dub track from all scenes?')) return;
+    try {
+      await fetch(`/api/chapters/${chapterId}/audio`, { method: 'DELETE' });
+      setMasterAudio(null);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleChangeMasterVolume = async (vol: number) => {
+    if (!masterAudio) return;
+    setMasterAudio((prev) => (prev ? { ...prev, volume: vol } : null));
+    try {
+      await fetch(`/api/chapters/${chapterId}/audio`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ volume: vol }),
+      });
+    } catch {}
+  };
+
+  const handleMihonSplitTall = async () => {
+    if (splittingTall) return;
+    setSplittingTall(true);
+    setSplitTallMessage('Analyzing webtoon images with Mihon gutter detection…');
+
+    try {
+      const res = await fetch(`/api/chapters/${chapterId}/split-tall`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Failed to split tall images');
+
+      await refreshOcrResults();
+      setSplitTallMessage(
+        data.splitCount > 0
+          ? `Mihon Split: Divided ${data.splitCount} tall image(s) into ${data.newPagesCount} clean panel pages!`
+          : 'All images are already within standard dimensions.'
+      );
+      setTimeout(() => setSplitTallMessage(''), 6000);
+    } catch (err: any) {
+      alert(err.message || 'Mihon splitting failed');
+    } finally {
+      setSplittingTall(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col">
@@ -707,6 +860,21 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
         <div className="flex items-center space-x-3">
           <button
             type="button"
+            onClick={handleMihonSplitTall}
+            disabled={splittingTall}
+            title="Split tall webtoon images into panels using Mihon gutter detection"
+            className="inline-flex items-center space-x-1.5 bg-neutral-800 hover:bg-neutral-700 text-amber-300 border border-neutral-700 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-50"
+          >
+            {splittingTall ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+            ) : (
+              <Scissors className="w-3.5 h-3.5 text-amber-400" />
+            )}
+            <span>{splittingTall ? 'Splitting Tall…' : 'Split Tall (Mihon)'}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setShowPublishPanel(true)}
             className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow"
           >
@@ -726,6 +894,21 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
           </div>
         </div>
       </header>
+
+      {splitTallMessage && (
+        <div className="bg-amber-950/80 border-b border-amber-800/80 px-6 py-2 flex items-center justify-between text-xs text-amber-200">
+          <div className="flex items-center space-x-2">
+            <Sparkles className="w-4 h-4 text-amber-400" />
+            <span>{splitTallMessage}</span>
+          </div>
+          <button
+            onClick={() => setSplitTallMessage('')}
+            className="text-amber-400 hover:text-white text-xs font-semibold"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Main Studio Layout */}
       <div className="flex-1 grid grid-cols-1 xl:grid-cols-12 xl:h-[calc(100vh-120px)] overflow-hidden">
@@ -1104,6 +1287,105 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                   <Layers className="w-10 h-10 text-neutral-700" />
                   <span>Add pages to start building the video</span>
                 </div>
+              )}
+            </div>
+          </div>
+
+          {/* Master Dubbing Bar (Dub Over All Scenes) */}
+          <div className="bg-neutral-900 border-t border-neutral-800 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-inner">
+            <div className="flex items-center space-x-2.5">
+              <div className={`p-1.5 rounded-xl ${isMasterRecording ? 'bg-red-500/20 text-red-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                <Radio className={`w-4 h-4 ${isMasterRecording ? 'animate-pulse' : ''}`} />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-bold text-white">Master Dub (All Scenes)</span>
+                  {masterAudio && (
+                    <span className="text-[10px] bg-rose-950/80 text-rose-300 border border-rose-800/80 px-2 py-0.5 rounded-full font-semibold">
+                      Active Dub Track ✓
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] text-neutral-400">
+                  {masterAudio
+                    ? `Audio: ${masterAudio.fileName || 'Voiceover track'} (${(masterAudio.duration || totalSeconds).toFixed(1)}s)`
+                    : 'Record or upload a single voiceover track across all scenes simultaneously.'}
+                </p>
+              </div>
+            </div>
+
+            {/* Master Dubbing Controls */}
+            <div className="flex items-center space-x-2">
+              {isMasterRecording ? (
+                <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-1.5 bg-red-950/90 border border-red-800 text-red-300 px-3 py-1.5 rounded-xl text-xs font-bold animate-pulse">
+                    <span className="w-2 h-2 rounded-full bg-red-500 inline-block animate-ping" />
+                    <span>
+                      LIVE DUBBING: {Math.floor(masterRecSeconds / 60)}:
+                      {('0' + (masterRecSeconds % 60)).slice(-2)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={stopMasterDubRecording}
+                    className="bg-red-600 hover:bg-red-500 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold shadow-lg transition-all cursor-pointer"
+                  >
+                    Stop & Save Dub
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={startMasterDubRecording}
+                    disabled={uploadingMasterAudio}
+                    className="inline-flex items-center space-x-1.5 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow transition-all disabled:opacity-50 cursor-pointer"
+                    title="Play video and record continuous voiceover across all scenes"
+                  >
+                    <Mic className="w-3.5 h-3.5" />
+                    <span>{masterAudio ? 'Re-record Master Dub' : 'Record Dub Over Scenes'}</span>
+                  </button>
+
+                  <label className="inline-flex items-center space-x-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition-all">
+                    <Upload className="w-3.5 h-3.5 text-neutral-400" />
+                    <span>{uploadingMasterAudio ? 'Uploading…' : 'Upload Dub File'}</span>
+                    <input
+                      type="file"
+                      accept="audio/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleUploadMasterAudio(file);
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+
+                  {masterAudio && (
+                    <div className="flex items-center space-x-2 pl-2 border-l border-neutral-800">
+                      <div className="flex items-center space-x-1 text-xs text-neutral-400">
+                        <Volume2 className="w-3.5 h-3.5" />
+                        <input
+                          type="range"
+                          min={0}
+                          max={1.5}
+                          step={0.05}
+                          value={masterAudio.volume ?? 1}
+                          onChange={(e) => handleChangeMasterVolume(parseFloat(e.target.value))}
+                          className="w-16 accent-rose-500 cursor-pointer"
+                          title={`Dub Volume: ${Math.round((masterAudio.volume ?? 1) * 100)}%`}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleRemoveMasterDub}
+                        className="p-1.5 text-neutral-400 hover:text-red-400 hover:bg-neutral-800 rounded-lg text-xs"
+                        title="Remove Master Dub Track"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>

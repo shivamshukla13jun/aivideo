@@ -3,10 +3,9 @@
 import React, { useEffect, useState, use } from 'react';
 import Navbar from '@/components/Navbar';
 import Link from 'next/link';
-import { ArrowLeft, ChevronLeft, ChevronRight, Maximize, ZoomIn, ZoomOut, CheckCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Maximize, ZoomIn, ZoomOut, CheckCircle, Loader2, Scissors, Film } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
-
 
 export default function WebtoonReaderPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
@@ -19,27 +18,53 @@ export default function WebtoonReaderPage({ params }: { params: Promise<{ id: st
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isCompleted, setIsCompleted] = useState(false);
+  const [splittingTall, setSplittingTall] = useState(false);
+  const [splitMessage, setSplitMessage] = useState('');
+
+  const loadReaderData = async () => {
+    try {
+      const [chapRes, pagesRes] = await Promise.all([
+        fetch(`/api/chapters/${chapterId}`),
+        fetch(`/api/chapters/${chapterId}/pages`),
+      ]);
+      const cData = await chapRes.json();
+      const pData = await pagesRes.json();
+
+      if (cData.success) setChapter(cData.data);
+      if (pData.success) setPages(pData.data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    async function loadReaderData() {
-      try {
-        const [chapRes, pagesRes] = await Promise.all([
-          fetch(`/api/chapters/${chapterId}`),
-          fetch(`/api/chapters/${chapterId}/pages`),
-        ]);
-        const cData = await chapRes.json();
-        const pData = await pagesRes.json();
-
-        if (cData.success) setChapter(cData.data);
-        if (pData.success) setPages(pData.data);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    }
     loadReaderData();
   }, [chapterId]);
+
+  const handleMihonSplitTall = async () => {
+    if (splittingTall) return;
+    setSplittingTall(true);
+    setSplitMessage('Splitting tall webtoon images with Mihon gutter detection…');
+    try {
+      const res = await fetch(`/api/chapters/${chapterId}/split-tall`, { method: 'POST' });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Failed to split tall images');
+
+      await loadReaderData();
+      setSplitMessage(
+        data.splitCount > 0
+          ? `Mihon Split: Divided ${data.splitCount} tall image(s) into ${data.newPagesCount} clean panel pages!`
+          : 'All images are already within standard dimensions.'
+      );
+      setTimeout(() => setSplitMessage(''), 5000);
+    } catch (err: any) {
+      alert(err.message || 'Mihon splitting failed');
+    } finally {
+      setSplittingTall(false);
+    }
+  };
 
   const handleNextPage = () => {
     if (currentPageIndex < pages.length - 1) {
@@ -84,6 +109,29 @@ export default function WebtoonReaderPage({ params }: { params: Promise<{ id: st
         </div>
 
         <div className="flex items-center space-x-3">
+          <button
+            type="button"
+            onClick={handleMihonSplitTall}
+            disabled={splittingTall}
+            title="Split tall webtoon images into panels using Mihon gutter detection"
+            className="inline-flex items-center space-x-1.5 bg-neutral-800 hover:bg-neutral-700 text-amber-300 border border-neutral-700 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-50"
+          >
+            {splittingTall ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+            ) : (
+              <Scissors className="w-3.5 h-3.5 text-amber-400" />
+            )}
+            <span>{splittingTall ? 'Splitting…' : 'Split Tall (Mihon)'}</span>
+          </button>
+
+          <Link
+            href={`/chapters/${chapterId}/studio`}
+            className="inline-flex items-center space-x-1.5 bg-purple-600 hover:bg-purple-500 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shadow"
+          >
+            <Film className="w-3.5 h-3.5" />
+            <span>Studio</span>
+          </Link>
+
           <div className="bg-neutral-800 rounded-xl p-1 flex items-center space-x-1 border border-neutral-700">
             <button
               onClick={() => setMode('vertical')}
@@ -114,6 +162,18 @@ export default function WebtoonReaderPage({ params }: { params: Promise<{ id: st
           </button>
         </div>
       </header>
+
+      {splitMessage && (
+        <div className="bg-amber-950/80 border-b border-amber-800/80 px-6 py-2 flex items-center justify-between text-xs text-amber-200">
+          <span>{splitMessage}</span>
+          <button
+            onClick={() => setSplitMessage('')}
+            className="text-amber-400 hover:text-white text-xs font-semibold"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Reader Body */}
       <main className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8">
