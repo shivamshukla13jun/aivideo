@@ -87,7 +87,7 @@ export function buildVideoProps(scenes: any[], aspect: Aspect, showSubtitles: bo
       cameraFx: CAMERA_FX.includes(s.effects) ? s.effects : 'none',
       visualFx: VISUAL_FX.includes(s.visualEffect) ? s.visualEffect : 'none',
       transition: s.transition === 'dissolve' ? 'fade' : TRANSITIONS.includes(s.transition) ? s.transition : 'none',
-      audioUrl: s.audio?.cloudinaryUrl || null,
+      audioUrl: s.audio?.url || s.audio?.cloudinaryUrl || null,
       narration: s.narration || '',
       narrationHi: s.narrationHi || '',
     }));

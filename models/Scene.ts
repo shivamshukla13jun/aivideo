@@ -13,8 +13,8 @@ export interface ISceneDoc extends Document {
   duration: number;
   image: string;
   audio?: {
-    cloudinaryUrl: string;
-    publicId: string;
+    url: string;
+    objectKey: string;
     duration: number;
     format: string;
     fileSize: number;
@@ -50,7 +50,9 @@ const SceneSchema = new Schema<ISceneDoc>(
     duration: { type: Number, default: 5 },
     image: { type: String, required: true },
     audio: {
-      cloudinaryUrl: String,
+      url: String,
+      objectKey: String,
+      cloudinaryUrl: String, // legacy field from the Cloudinary era
       publicId: String,
       duration: Number,
       format: String,
@@ -95,6 +97,6 @@ const SceneSchema = new Schema<ISceneDoc>(
 );
 
 // A model cached by hot reload with an older schema would silently drop the newer fields
-if (mongoose.models.Scene && !mongoose.models.Scene.schema.path('narrationHi')) mongoose.deleteModel('Scene');
+if (mongoose.models.Scene && !mongoose.models.Scene.schema.path('audio.url')) mongoose.deleteModel('Scene');
 
 export const Scene: Model<ISceneDoc> = mongoose.models.Scene || mongoose.model<ISceneDoc>('Scene', SceneSchema);

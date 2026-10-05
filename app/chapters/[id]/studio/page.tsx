@@ -866,7 +866,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
           <div className="border-t border-neutral-800 pt-4 flex-1 flex flex-col">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-xs font-bold text-neutral-300 uppercase tracking-wider">
-                Suwayomi Pages ({pages.length})
+                Chapter Pages ({pages.length})
               </h3>
               <button
                 onClick={toggleSelectAllPages}
@@ -1400,7 +1400,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                   )}
                   {uploadingAudio && <span className="text-xs text-neutral-400">Uploading audio...</span>}
                 </div>
-                {activeScene.audio?.cloudinaryUrl && (
+                {(activeScene.audio?.url || activeScene.audio?.cloudinaryUrl) && (
                   <div className="mt-2 flex items-center space-x-2 text-xs text-emerald-400 bg-emerald-950/40 p-2 rounded-lg border border-emerald-900/50">
                     <Volume2 className="w-4 h-4" />
                     <span>

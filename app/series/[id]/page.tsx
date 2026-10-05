@@ -1,11 +1,9 @@
 'use client';
 
-import React, { useEffect, useState, use } from 'react';
+import React, { useEffect, useRef, useState, use } from 'react';
 import Navbar from '@/components/Navbar';
 import Link from 'next/link';
-import Image from 'next/image';
-import { BookOpen, Film, Library, ArrowLeft, RefreshCw, Loader2, CheckCircle2, Server } from 'lucide-react';
-import { SUWAYOMI_URL } from '@/lib/suwayomi';
+import { BookOpen, Film, Library, RefreshCw, Loader2, Upload, FileArchive } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +17,14 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
   const [refreshing, setRefreshing] = useState(false);
   const [inLibrary, setInLibrary] = useState(false);
 
+  // CBZ upload state
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [cbzFile, setCbzFile] = useState<File | null>(null);
+  const [chapterNumber, setChapterNumber] = useState('');
+  const [chapterTitle, setChapterTitle] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+
   const loadDetails = async () => {
     try {
       const [seriesRes, chaptersRes, libRes] = await Promise.all([
@@ -30,9 +36,7 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
       const cData = await chaptersRes.json();
       const lData = await libRes.json();
 
-      if (sData.success) {
-        setSeries(sData.data);
-      }
+      if (sData.success) setSeries(sData.data);
       if (cData.success) setChapters(cData.data);
       if (lData.success) {
         const found = lData.data.find((item: any) => item.seriesId?._id === seriesId || item.seriesId === seriesId);
@@ -47,7 +51,9 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
   };
 
   useEffect(() => {
-    loadDetails();
+    const t = setTimeout(loadDetails, 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seriesId]);
 
   const handleRefresh = async () => {
@@ -73,6 +79,33 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
     }
   };
 
+  const handleUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cbzFile) return setUploadError('Choose a .cbz file first');
+    if (!chapterNumber.trim()) return setUploadError('Chapter number is required');
+    setUploading(true);
+    setUploadError('');
+    try {
+      const fd = new FormData();
+      fd.append('cbz', cbzFile);
+      fd.append('seriesId', seriesId);
+      fd.append('chapterNumber', chapterNumber);
+      if (chapterTitle.trim()) fd.append('title', chapterTitle.trim());
+      const res = await fetch('/api/chapters', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Upload failed');
+      setCbzFile(null);
+      setChapterNumber('');
+      setChapterTitle('');
+      if (fileRef.current) fileRef.current.value = '';
+      await loadDetails();
+    } catch (err: any) {
+      setUploadError(err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col">
@@ -89,13 +122,16 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
       <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col">
         <Navbar />
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-          <h1 className="text-xl font-bold mb-2">Series Not Found in Suwayomi Library</h1>
-          <p className="text-neutral-400 text-sm mb-4">Ensure this webtoon is added to your Suwayomi library on port {SUWAYOMI_URL}.</p>
+          <h1 className="text-xl font-bold mb-2">Series Not Found</h1>
+          <p className="text-neutral-400 text-sm mb-4">Create a series first, then upload chapter .cbz files.</p>
           <Link href="/" className="text-indigo-400 hover:underline">Return to Explore</Link>
         </div>
       </div>
     );
   }
+
+  const inputCls =
+    'bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-indigo-500 transition-all';
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col">
@@ -112,22 +148,24 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
           />
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/70 to-transparent" />
-        
+
         <div className="absolute inset-x-0 bottom-0 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8 flex flex-col sm:flex-row items-start sm:items-end gap-6">
           <div className="relative w-36 sm:w-48 aspect-[3/4] rounded-2xl overflow-hidden shadow-2xl border-4 border-neutral-900 flex-shrink-0 bg-neutral-900">
-            <img
-              src={series.coverImage}
-              alt={series.title}
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-cover"
-            />
+            {series.coverImage ? (
+              <img
+                src={series.coverImage}
+                alt={series.title}
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-neutral-700">
+                <BookOpen className="w-10 h-10" />
+              </div>
+            )}
           </div>
           <div className="flex-1">
             <div className="flex flex-wrap items-center gap-2 mb-2">
-              <span className="bg-emerald-600/90 text-white text-[11px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider flex items-center space-x-1">
-                <Server className="w-3 h-3" />
-                <span>Suwayomi Sync</span>
-              </span>
               <span className="bg-indigo-600 text-white text-[11px] font-bold px-3 py-1 rounded-full uppercase">
                 {series.status}
               </span>
@@ -159,33 +197,69 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
                 className="flex items-center space-x-2 bg-neutral-800 hover:bg-neutral-700 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all border border-neutral-700 shadow"
               >
                 <RefreshCw className={`w-4 h-4 text-emerald-400 ${refreshing ? 'animate-spin' : ''}`} />
-                <span>{refreshing ? 'Syncing...' : 'Sync from Suwayomi'}</span>
+                <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Chapters Section */}
+      {/* Chapter Upload */}
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full space-y-6">
+        <form onSubmit={handleUpload} className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 space-y-4">
+          <h2 className="text-sm font-bold text-white flex items-center space-x-2 uppercase tracking-wider">
+            <Upload className="w-4 h-4 text-indigo-400" />
+            <span>Upload Chapter (.cbz)</span>
+          </h2>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="flex items-center justify-center space-x-2 bg-neutral-800 hover:bg-neutral-700 border border-dashed border-neutral-600 hover:border-indigo-500 text-neutral-300 px-4 py-2.5 rounded-xl text-sm transition-all"
+            >
+              <FileArchive className="w-4 h-4 text-indigo-400" />
+              <span className="truncate max-w-[220px]">{cbzFile ? cbzFile.name : 'Choose .cbz file'}</span>
+            </button>
+            <input ref={fileRef} type="file" accept=".cbz,.zip" onChange={(e) => setCbzFile(e.target.files?.[0] || null)} className="hidden" />
+            <input
+              className={`${inputCls} w-28`}
+              placeholder="Ch. #"
+              type="number"
+              step="any"
+              value={chapterNumber}
+              onChange={(e) => setChapterNumber(e.target.value)}
+            />
+            <input
+              className={`${inputCls} flex-1`}
+              placeholder="Chapter title (optional)"
+              value={chapterTitle}
+              onChange={(e) => setChapterTitle(e.target.value)}
+            />
+            <button
+              type="submit"
+              disabled={uploading || !cbzFile}
+              className="inline-flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold px-5 py-2.5 rounded-xl text-sm transition-all shadow"
+            >
+              {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              <span>{uploading ? 'Uploading…' : 'Upload'}</span>
+            </button>
+          </div>
+          {uploadError && <p className="text-xs text-red-400">{uploadError}</p>}
+          <p className="text-[11px] text-neutral-500">A .cbz is a ZIP archive of the chapter&apos;s page images. Pages are extracted and stored in MinIO.</p>
+        </form>
+
+        {/* Chapters Section */}
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold text-white flex items-center space-x-2">
             <BookOpen className="w-5 h-5 text-indigo-400" />
             <span>Chapters ({chapters.length})</span>
           </h2>
-          <span className="text-xs text-neutral-400">Fetched directly from Suwayomi :{SUWAYOMI_URL}</span>
         </div>
 
         {chapters.length === 0 ? (
           <div className="text-center py-16 bg-neutral-900/50 rounded-2xl border border-neutral-800">
-            <p className="text-sm text-neutral-400 mb-4">No chapters found in Suwayomi for this series.</p>
-            <button
-              onClick={handleRefresh}
-              className="inline-flex items-center space-x-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold"
-            >
-              <RefreshCw className="w-4 h-4" />
-              <span>Retry Sync</span>
-            </button>
+            <FileArchive className="w-10 h-10 text-neutral-600 mx-auto mb-3" />
+            <p className="text-sm text-neutral-400">No chapters yet — upload a .cbz above to create the first one.</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -201,7 +275,7 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
                   <div>
                     <h3 className="font-bold text-white text-base">{chap.title}</h3>
                     <p className="text-xs text-neutral-400">
-                      Chapter #{chap.chapterNumber} {chap.isDownloaded && '• Downloaded'} {chap.isRead && '• Read ✓'}
+                      Chapter #{chap.chapterNumber} • {chap.pages?.length || 0} pages • {chap.status}
                     </p>
                   </div>
                 </div>

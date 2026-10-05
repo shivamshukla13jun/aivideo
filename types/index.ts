@@ -18,12 +18,13 @@ export interface ISeries {
   updatedAt: string;
 }
 
-export interface ICloudinaryAsset {
-  cloudinaryUrl: string;
-  publicId: string;
+export interface IStoredFile {
+  url: string;
+  objectKey: string;
   fileName: string;
   fileSize: number;
   format: string;
+  mimeType?: string;
   dimensions?: { width: number; height: number };
   duration?: number;
 }
@@ -33,8 +34,8 @@ export interface IChapter {
   seriesId: string;
   chapterNumber: number;
   title: string;
-  originalCbz?: ICloudinaryAsset;
-  editedCbz?: ICloudinaryAsset;
+  originalCbz?: IStoredFile;
+  editedCbz?: IStoredFile;
   pages?: string[]; // Page IDs
   scenes?: string[]; // Scene IDs
   videoProject?: string; // VideoProject ID
@@ -84,8 +85,8 @@ export interface IScene {
   duration: number; // seconds
   image: string;
   audio?: {
-    cloudinaryUrl: string;
-    publicId: string;
+    url: string;
+    objectKey: string;
     duration: number;
     format: string;
     fileSize: number;

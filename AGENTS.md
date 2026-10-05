@@ -1,6 +1,10 @@
 # Project notes
 
 - Dev server: `npm run dev` (port 5000). Next.js 15 App Router, Mongoose, Tailwind.
+- Content source: user uploads — series created via `POST /api/series` (multipart), chapters via `POST /api/chapters` (multipart `.cbz`, multer in `lib/upload.ts`). NO Suwayomi anymore.
+- Storage: MinIO (`lib/minio.ts`). `uploadFile()` stores buffers, `fileUrl(key)` → `/api/files/<key>` (same-origin stream route — keeps canvas untainted). `lib/cbz.ts` extracts page images with jszip and uploads archive+pages to `chapters/<id>/`.
+- `Page.publicId` holds the MinIO object key; `originalUrl`/`editedUrl` hold `/api/files/...` URLs. OCR reads buffers straight from MinIO.
+- Scene audio shape: `{ url, objectKey, duration, format, fileSize }` (`cloudinaryUrl`/`publicId` remain for legacy docs).
 - Typecheck: `npx tsc --noEmit -p .` (ignore stale errors under `.next/types` for deleted routes).
 - Lint: `npx eslint <files>` (`<img>` warnings are expected project-wide).
 - Video: Remotion (`remotion`, `@remotion/player`, `@remotion/web-renderer`, `@remotion/media`, `@remotion/transitions`, pinned 4.0.526).

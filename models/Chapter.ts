@@ -1,12 +1,13 @@
 import mongoose, { Schema, Document, Model } from 'mongoose';
 
-const CloudinaryAssetSchema = new Schema(
+const StoredFileSchema = new Schema(
   {
-    cloudinaryUrl: { type: String, required: true },
-    publicId: { type: String, required: true },
+    url: { type: String, required: true },
+    objectKey: { type: String, required: true },
     fileName: { type: String, required: true },
     fileSize: { type: Number, required: true },
     format: { type: String, required: true },
+    mimeType: { type: String },
     dimensions: {
       width: Number,
       height: Number,
@@ -36,8 +37,8 @@ const ChapterSchema = new Schema<IChapterDoc>(
     seriesId: { type: Schema.Types.ObjectId, ref: 'Series', required: true, index: true },
     chapterNumber: { type: Number, required: true },
     title: { type: String, required: true },
-    originalCbz: CloudinaryAssetSchema,
-    editedCbz: CloudinaryAssetSchema,
+    originalCbz: StoredFileSchema,
+    editedCbz: StoredFileSchema,
     pages: [{ type: Schema.Types.ObjectId, ref: 'Page' }],
     scenes: [{ type: Schema.Types.ObjectId, ref: 'Scene' }],
     videoProject: { type: Schema.Types.ObjectId, ref: 'VideoProject' },
@@ -46,5 +47,8 @@ const ChapterSchema = new Schema<IChapterDoc>(
   },
   { timestamps: true }
 );
+
+// A model cached by hot reload with an older schema would silently drop the newer fields
+if (mongoose.models.Chapter && !mongoose.models.Chapter.schema.path('originalCbz.objectKey')) mongoose.deleteModel('Chapter');
 
 export const Chapter: Model<IChapterDoc> = mongoose.models.Chapter || mongoose.model<IChapterDoc>('Chapter', ChapterSchema);

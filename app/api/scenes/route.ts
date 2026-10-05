@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
           $push: { scenes: scene._id },
         });
       } catch {
-        // Ignored for external/Suwayomi chapters
+        // Ignored for chapters that aren't Mongo documents
       }
     }
 

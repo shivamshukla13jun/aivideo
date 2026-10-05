@@ -4,16 +4,16 @@ import ReduxProvider from '@/components/ReduxProvider';
 
 export const metadata: Metadata = {
   title: 'Webtoon Studio & Reader',
-  description: 'Production-ready Webtoon Reader, Scene Editor, and Video Studio with MongoDB and Cloudinary integration.',
+  description: 'Production-ready Webtoon Reader, Scene Editor, and Video Studio with MongoDB and MinIO storage.',
   openGraph: {
     title: 'Webtoon Studio & Reader',
-    description: 'Production-ready Webtoon Reader, Scene Editor, and Video Studio with MongoDB and Cloudinary integration.',
+    description: 'Production-ready Webtoon Reader, Scene Editor, and Video Studio with MongoDB and MinIO storage.',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Webtoon Studio & Reader',
-    description: 'Production-ready Webtoon Reader, Scene Editor, and Video Studio with MongoDB and Cloudinary integration.',
+    description: 'Production-ready Webtoon Reader, Scene Editor, and Video Studio with MongoDB and MinIO storage.',
   },
 };
 

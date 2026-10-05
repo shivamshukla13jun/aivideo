@@ -54,7 +54,7 @@ const nextConfig: NextConfig = {
   // Keep tesseract.js external — it spawns its own Node worker threads, and
   // bundling it rewrites the worker path to .next/worker-script/node/index.js
   // which crashes dev mode with MODULE_NOT_FOUND.
-  serverExternalPackages: ['tesseract.js'],
+  serverExternalPackages: ['tesseract.js', 'minio', 'multer'],
   webpack: (config, { dev }) => {
     // HMR is disabled in AI Studio via DISABLE_HMR env var.
     // Do not modifyâfile watching is disabled to prevent flickering during agent edits.

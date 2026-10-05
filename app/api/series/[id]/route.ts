@@ -1,26 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getMangaDetails, mapSuwayomiMangaToSeries } from '@/lib/suwayomi';
+import { connectDB } from '@/lib/mongodb';
+import { Series } from '@/models/Series';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const numericId = parseInt(id, 10);
-
-    if (isNaN(numericId)) {
-      return NextResponse.json({ success: false, error: 'Invalid series id' }, { status: 400 });
+    await connectDB();
+    const series = await Series.findById(id);
+    if (!series) {
+      return NextResponse.json({ success: false, error: 'Series not found' }, { status: 404 });
     }
-
-    const manga = await getMangaDetails(numericId);
-    if (!manga) {
-      return NextResponse.json({ success: false, error: 'Series not found in Suwayomi library' }, { status: 404 });
-    }
-
-    const mapped = mapSuwayomiMangaToSeries(manga);
-    return NextResponse.json({ success: true, data: mapped });
+    return NextResponse.json({ success: true, data: series });
   } catch (error: any) {
-    console.error(`Error fetching series ${params} from Suwayomi:`, error);
+    console.error('Error fetching series:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

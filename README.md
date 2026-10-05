@@ -1,6 +1,6 @@
 # Webtoon Studio & Reader
 
-A production-ready Webtoon Reader, Scene Editor, and Video Studio built with Next.js App Router, TypeScript, Redux Toolkit, Mongoose, and Cloudinary.
+A production-ready Webtoon Reader, Scene Editor, and Video Studio built with Next.js App Router, TypeScript, Redux Toolkit, Mongoose, and MinIO object storage.
 
 ## Features
 
@@ -20,9 +20,15 @@ Copy `.env.example` to `.env.local` and configure your credentials:
 
 ```env
 MONGODB_URI=your_mongodb_connection_string
-CLOUDINARY_CLOUD_NAME=your_cloudinary_cloud_name
-CLOUDINARY_API_KEY=your_cloudinary_api_key
-CLOUDINARY_API_SECRET=your_cloudinary_api_secret
+
+# MinIO object storage — all files (CBZ archives, page images, audio, covers)
+# are uploaded here via multer and served through /api/files/<key>.
+MINIO_ENDPOINT=localhost
+MINIO_PORT=9000
+MINIO_USE_SSL=false
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+MINIO_BUCKET=webtoon
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 # YouTube publishing (optional) — Google Cloud OAuth client with

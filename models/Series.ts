@@ -21,12 +21,12 @@ const SeriesSchema = new Schema<ISeriesDoc>(
   {
     title: { type: String, required: true, index: true },
     alternativeTitle: { type: String },
-    description: { type: String, required: true },
-    author: { type: String, required: true },
-    artist: { type: String, required: true },
+    description: { type: String, default: '' },
+    author: { type: String, default: 'Unknown Author' },
+    artist: { type: String, default: 'Unknown Artist' },
     genres: [{ type: String }],
     status: { type: String, enum: ['ongoing', 'completed', 'hiatus'], default: 'ongoing' },
-    coverImage: { type: String, required: true },
+    coverImage: { type: String, default: '' },
     bannerImage: { type: String },
     language: { type: String, default: 'English' },
     releaseYear: { type: Number, default: new Date().getFullYear() },
@@ -34,5 +34,8 @@ const SeriesSchema = new Schema<ISeriesDoc>(
   },
   { timestamps: true }
 );
+
+// A model cached by hot reload with an older schema would silently drop the newer fields
+if (mongoose.models.Series && (mongoose.models.Series.schema.path('description') as any)?.isRequired) mongoose.deleteModel('Series');
 
 export const Series: Model<ISeriesDoc> = mongoose.models.Series || mongoose.model<ISeriesDoc>('Series', SeriesSchema);

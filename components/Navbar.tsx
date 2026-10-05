@@ -2,8 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Sparkles, Home, Library, Server, Youtube } from 'lucide-react';
-import { SUWAYOMI_URL } from '@/lib/suwayomi';
+import { Sparkles, Home, Library, Youtube, Plus } from 'lucide-react';
 
 export default function Navbar() {
   return (
@@ -30,11 +29,13 @@ export default function Navbar() {
           </nav>
         </div>
         <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2 text-xs font-semibold bg-neutral-900 border border-neutral-800 px-3 py-1.5 rounded-full text-emerald-400 shadow-xs">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
-            <Server className="w-3.5 h-3.5" />
-            <span>Suwayomi :{SUWAYOMI_URL}</span>
-          </div>
+          <Link
+            href="/series/new"
+            className="flex items-center space-x-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 px-3.5 py-1.5 rounded-full text-white shadow transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>New Series</span>
+          </Link>
         </div>
       </div>
     </header>

@@ -11,7 +11,7 @@ import { connectDB } from '@/lib/mongodb';
 import { Page } from '@/models/Page';
 import { Scene } from '@/models/Scene';
 import { OcrJob } from '@/models/OcrJob';
-import { getChapterPages } from '@/lib/suwayomi';
+import { getFileBuffer } from '@/lib/minio';
 import { extractPageText, isProviderAvailable, type OcrProvider } from '@/lib/ocr';
 
 export interface OcrJobResult {
@@ -27,8 +27,6 @@ export async function runOcrJob(jobId: string): Promise<OcrJobResult> {
   if (!job) throw new Error(`OCR job not found: ${jobId}`);
 
   const chapterId = job.chapterId;
-  const numericId = parseInt(chapterId, 10);
-  if (isNaN(numericId)) throw new Error(`Invalid chapter id: ${chapterId}`);
 
   job.status = 'running';
   job.startedAt = new Date();
@@ -37,7 +35,9 @@ export async function runOcrJob(jobId: string): Promise<OcrJobResult> {
   job.attempts = (job.attempts || 0) + 1;
   await job.save();
 
-  const { pages } = await getChapterPages(numericId);
+  // Pages come from MongoDB — extracted from the uploaded CBZ into MinIO
+  const pages = await Page.find({ chapterId, status: { $ne: 'deleted' } }).sort({ order: 1 }).lean();
+  if (pages.length === 0) throw new Error(`No pages found for chapter ${chapterId} — upload a CBZ first`);
 
   // On retry, only re-process pages that previously failed
   const retryOnly = job.failedOrders && job.failedOrders.length > 0 ? new Set(job.failedOrders) : null;
@@ -53,41 +53,34 @@ export async function runOcrJob(jobId: string): Promise<OcrJobResult> {
   const overwrite = Boolean(job.overwriteScenes);
 
   for (let idx = 0; idx < pages.length; idx++) {
-    const order = idx + 1;
+    const pageDoc0 = pages[idx];
+    const order = pageDoc0.order ?? idx + 1;
     if (retryOnly && !retryOnly.has(order)) continue;
 
-    const pageUrl = pages[idx];
-    const pageId = `${chapterId}_page_${order}`;
-
     try {
+      // Prefer the MinIO object directly; fall back to the stored URL for legacy rows
+      const input = pageDoc0.publicId
+        ? await getFileBuffer(pageDoc0.publicId)
+        : (pageDoc0.editedUrl || pageDoc0.originalUrl);
       // Provider errors (quota, network) fail the page so it can be retried
-      const ocr = await extractPageText(pageUrl, provider);
+      const ocr = await extractPageText(input, provider);
 
-      // Upsert the Page document — extracted text is stored via pageId
-      const pageDoc = await Page.findOneAndUpdate(
-        { chapterId, order },
+      const pageDoc = await Page.findByIdAndUpdate(
+        pageDoc0._id,
         {
           $set: {
-            chapterId,
-            pageId,
-            order,
-            originalUrl: pageUrl,
-            editedUrl: pageUrl,
             extractedText: ocr.en,
             extractedTextHi: ocr.hi,
             ocrRaw: ocr.raw,
             ocrProvider: ocr.provider,
-            status: 'active',
           },
-          $setOnInsert: { panels: [] },
         },
-        { upsert: true, new: true }
+        { new: true }
       );
 
-      // Scenes reference a page by its Mongo id, or by the Suwayomi index id (0-based) when created before OCR
       const pageScenes = await Scene.find({
         chapterId,
-        pageId: { $in: [String(pageDoc._id), `${chapterId}_page_${idx}`] },
+        pageId: { $in: [String(pageDoc!._id), pageDoc0.pageId].filter(Boolean) },
       }).sort({ order: 1 });
 
       // Only the first scene of a page carries its narration; split continuations keep their own text

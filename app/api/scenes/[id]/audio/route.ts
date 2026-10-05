@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import { Scene } from '@/models/Scene';
-import { uploadToCloudinary } from '@/lib/cloudinary';
+import { parseUpload } from '@/lib/upload';
+import { uploadFile, deleteFile } from '@/lib/minio';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -10,22 +11,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const scene = await Scene.findById(id);
     if (!scene) return NextResponse.json({ success: false, error: 'Scene not found' }, { status: 404 });
 
-    const formData = await req.formData();
-    const file = formData.get('audioFile') as File;
+    const { file } = await parseUpload(req, 'audioFile');
     if (!file) return NextResponse.json({ success: false, error: 'No audio file uploaded' }, { status: 400 });
 
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const ext = file.originalname.match(/\.[a-z0-9]+$/i)?.[0] || '.mp3';
+    const stored = await uploadFile(
+      file.buffer,
+      `chapters/${scene.chapterId}/audio/${id}-${Date.now()}${ext}`,
+      file.originalname,
+      file.mimetype
+    );
 
-    const cloudinaryAsset = await uploadToCloudinary(buffer, 'audio', 'video'); // Cloudinary treats audio as video/auto resource type
+    // Clean up the previous audio object
+    if (scene.audio?.objectKey) await deleteFile(scene.audio.objectKey);
 
     scene.audio = {
-      cloudinaryUrl: cloudinaryAsset.cloudinaryUrl,
-      publicId: cloudinaryAsset.publicId,
-      duration: cloudinaryAsset.duration || 5,
-      format: cloudinaryAsset.format || 'mp3',
-      fileSize: file.size,
-    };
+      url: stored.url,
+      objectKey: stored.objectKey,
+      duration: 0,
+      format: stored.format,
+      fileSize: stored.fileSize,
+    } as any;
 
     await scene.save();
     return NextResponse.json({ success: true, data: scene });

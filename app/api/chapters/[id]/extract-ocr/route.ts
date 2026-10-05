@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import { OcrJob } from '@/models/OcrJob';
-import { getChapterDetails, getMangaDetails } from '@/lib/suwayomi';
+import { Chapter } from '@/models/Chapter';
+import { Series } from '@/models/Series';
 import { publishOcrJob } from '@/lib/queue';
 import { runOcrJob } from '@/lib/ocrJob';
 import { isProviderAvailable } from '@/lib/ocr';
@@ -11,11 +12,6 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id: chapterId } = await params;
-    const numericId = parseInt(chapterId, 10);
-
-    if (isNaN(numericId)) {
-      return NextResponse.json({ success: false, error: 'Invalid chapter id' }, { status: 400 });
-    }
 
     const body = await req.json().catch(() => ({}));
     const targetOrders: number[] | null = Array.isArray(body.orders) ? body.orders : null;
@@ -34,14 +30,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     let seriesTitle = '';
     let chapterName = `Chapter ${chapterId}`;
     try {
-      const chap = await getChapterDetails(numericId);
+      const chap = await Chapter.findById(chapterId);
       if (chap) {
-        chapterName = chap.name || chapterName;
-        seriesId = String(chap.mangaId || '');
-        if (chap.mangaId != null) {
-          const manga = await getMangaDetails(chap.mangaId);
-          seriesTitle = manga?.title || '';
-        }
+        chapterName = chap.title || `Chapter ${chap.chapterNumber}`;
+        seriesId = String(chap.seriesId || '');
+        const series = await Series.findById(chap.seriesId);
+        seriesTitle = series?.title || '';
       }
     } catch {
       // non-fatal — job still works without display metadata
