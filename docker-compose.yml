@@ -19,6 +19,20 @@ services:
 
     command: server /data --console-address ":9001"
 
+  paddleocr:
+    build: ./ocr-server
+    container_name: paddleocr
+    restart: unless-stopped
+
+    ports:
+      - "5004:5004"
+
+    environment:
+      TZ: Asia/Kolkata
+
+    volumes:
+      - paddle_models:/models   # OCR model cache — avoids re-downloading
+
   # rabbitmq:
   #   image: rabbitmq:3-management
   #   container_name: rabbitmq
@@ -36,5 +50,8 @@ services:
   #     RABBITMQ_DEFAULT_PASS: admin123
   #     TZ: Asia/Kolkata
 
+volumes:
+  minio_data:
+  paddle_models:
   # rabbitmq_data:
   #   name: rabbitmq_data

@@ -1,7 +1,26 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowLeftRight, ArrowUp, Copy, Maximize2, Pause, ZoomIn, ZoomOut } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowLeftRight,
+  ArrowRight,
+  ArrowLeft,
+  ArrowUp,
+  ArrowDownRight,
+  ArrowDownLeft,
+  Copy,
+  Focus,
+  Maximize2,
+  Move,
+  MoveHorizontal,
+  Orbit,
+  Pause,
+  Wind,
+  Zap,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
 import {
   Aspect,
   Camera,
@@ -37,13 +56,25 @@ const KEY_STYLE: Record<Key, { border: string; bg: string; label: string }> = {
   end: { border: 'border-rose-400', bg: 'bg-rose-500', label: 'END' },
 };
 
-const PRESETS: { id: CameraPreset; label: string; icon: React.ReactNode }[] = [
-  { id: 'read-down', label: 'Read ↓', icon: <ArrowDown className="w-3 h-3" /> },
-  { id: 'read-up', label: 'Read ↑', icon: <ArrowUp className="w-3 h-3" /> },
-  { id: 'hold', label: 'Hold', icon: <Pause className="w-3 h-3" /> },
-  { id: 'zoom-in', label: 'Zoom In', icon: <ZoomIn className="w-3 h-3" /> },
-  { id: 'zoom-out', label: 'Zoom Out', icon: <ZoomOut className="w-3 h-3" /> },
-  { id: 'full-page', label: 'Full Page', icon: <Maximize2 className="w-3 h-3" /> },
+const PRESETS: { id: CameraPreset; label: string; icon: React.ReactNode; group: string }[] = [
+  // Basic
+  { id: 'read-down', label: 'Read ↓', icon: <ArrowDown className="w-3 h-3" />, group: 'Basic' },
+  { id: 'read-up', label: 'Read ↑', icon: <ArrowUp className="w-3 h-3" />, group: 'Basic' },
+  { id: 'hold', label: 'Hold', icon: <Pause className="w-3 h-3" />, group: 'Basic' },
+  { id: 'zoom-in', label: 'Zoom In', icon: <ZoomIn className="w-3 h-3" />, group: 'Basic' },
+  { id: 'zoom-out', label: 'Zoom Out', icon: <ZoomOut className="w-3 h-3" />, group: 'Basic' },
+  { id: 'full-page', label: 'Full Page', icon: <Maximize2 className="w-3 h-3" />, group: 'Basic' },
+  // Cinematic
+  { id: 'pan-left', label: 'Pan ←', icon: <ArrowLeft className="w-3 h-3" />, group: 'Cinematic' },
+  { id: 'pan-right', label: 'Pan →', icon: <ArrowRight className="w-3 h-3" />, group: 'Cinematic' },
+  { id: 'diagonal-dr', label: 'Diagonal ↘', icon: <ArrowDownRight className="w-3 h-3" />, group: 'Cinematic' },
+  { id: 'diagonal-dl', label: 'Diagonal ↙', icon: <ArrowDownLeft className="w-3 h-3" />, group: 'Cinematic' },
+  { id: 'dolly-in', label: 'Dolly In', icon: <Move className="w-3 h-3" />, group: 'Cinematic' },
+  { id: 'crane-down', label: 'Crane ↓', icon: <MoveHorizontal className="w-3 h-3" />, group: 'Cinematic' },
+  { id: 'focus-pull', label: 'Focus Pull', icon: <Focus className="w-3 h-3" />, group: 'Cinematic' },
+  { id: 'orbit', label: 'Orbit', icon: <Orbit className="w-3 h-3" />, group: 'Cinematic' },
+  { id: 'whip-pan', label: 'Whip Pan', icon: <Zap className="w-3 h-3" />, group: 'Cinematic' },
+  { id: 'drift', label: 'Drift', icon: <Wind className="w-3 h-3" />, group: 'Cinematic' },
 ];
 
 export default function CameraEditor({
@@ -243,18 +274,25 @@ export default function CameraEditor({
         />
       </div>
 
+      {(['Basic', 'Cinematic'] as const).map((group) => (
+        <div key={group} className="space-y-1.5">
+          <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider">{group}</span>
+          <div className="grid grid-cols-3 gap-1.5">
+            {PRESETS.filter((p) => p.group === group).map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => onChange(presetCamera(p.id, aspect, iw, ih, camera))}
+                className="px-2 py-1.5 bg-neutral-800 hover:bg-neutral-700 rounded-lg text-[11px] text-neutral-200 flex items-center justify-center space-x-1"
+              >
+                {p.icon}
+                <span>{p.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
       <div className="grid grid-cols-3 gap-1.5">
-        {PRESETS.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            onClick={() => onChange(presetCamera(p.id, aspect, iw, ih, camera))}
-            className="px-2 py-1.5 bg-neutral-800 hover:bg-neutral-700 rounded-lg text-[11px] text-neutral-200 flex items-center justify-center space-x-1"
-          >
-            {p.icon}
-            <span>{p.label}</span>
-          </button>
-        ))}
         <button
           type="button"
           onClick={() => onChange({ ...camera, start: camera.end, end: camera.start })}

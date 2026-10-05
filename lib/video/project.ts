@@ -9,8 +9,24 @@ import {
 import { HideBox, Segment, keptFraction, keptSegments, normalizeHideBoxes } from './cleanup';
 
 export type SceneTransition = 'none' | 'fade' | 'slide' | 'wipe';
-export type CameraFx = 'none' | 'shake' | 'pulse';
-export type VisualFx = 'none' | 'vignette' | 'speed-lines' | 'bloom' | 'flash';
+export type CameraFx = 'none' | 'shake' | 'pulse' | 'float' | 'heartbeat' | 'zoom-pulse' | 'breathe';
+export type VisualFx =
+  | 'none'
+  | 'vignette'
+  | 'speed-lines'
+  | 'bloom'
+  | 'flash'
+  | 'sepia'
+  | 'high-contrast'
+  | 'letterbox'
+  | 'film-grain'
+  | 'rain'
+  | 'particles'
+  | 'noir'
+  | 'color-wash-warm'
+  | 'color-wash-cool'
+  | 'focus-blur'
+  | 'manga-tone';
 
 export interface VideoScene {
   id: string;
@@ -53,8 +69,13 @@ export function loadImageSize(url: string): Promise<{ width: number; height: num
 }
 
 const TRANSITIONS: SceneTransition[] = ['none', 'fade', 'slide', 'wipe'];
-const CAMERA_FX: CameraFx[] = ['none', 'shake', 'pulse'];
-const VISUAL_FX: VisualFx[] = ['none', 'vignette', 'speed-lines', 'bloom', 'flash'];
+const CAMERA_FX: CameraFx[] = ['none', 'shake', 'pulse', 'float', 'heartbeat', 'zoom-pulse', 'breathe'];
+const VISUAL_FX: VisualFx[] = [
+  'none', 'vignette', 'speed-lines', 'bloom', 'flash',
+  'sepia', 'high-contrast', 'letterbox', 'film-grain',
+  'rain', 'particles', 'noir', 'color-wash-warm', 'color-wash-cool',
+  'focus-blur', 'manga-tone',
+];
 
 /** Image height once the scene's cut bands are removed. */
 export const effectiveImageHeight = (scene: any) => (scene.imageHeight || 1) * keptFraction(scene.cuts);

@@ -12,7 +12,23 @@ export type Aspect = '16:9' | '9:16';
 export type Easing = 'linear' | 'ease-in-out' | 'ease-out' | 'ease-in';
 export type Keyframe = { cx: number; cy: number; zoom: number };
 export type Camera = { start: Keyframe; end: Keyframe; easing: Easing };
-export type CameraPreset = 'read-down' | 'read-up' | 'hold' | 'zoom-in' | 'zoom-out' | 'full-page';
+export type CameraPreset =
+  | 'read-down'
+  | 'read-up'
+  | 'hold'
+  | 'zoom-in'
+  | 'zoom-out'
+  | 'full-page'
+  | 'pan-left'
+  | 'pan-right'
+  | 'diagonal-dr'
+  | 'diagonal-dl'
+  | 'dolly-in'
+  | 'crane-down'
+  | 'focus-pull'
+  | 'orbit'
+  | 'whip-pan'
+  | 'drift';
 
 export const FPS = 30;
 export const TRANSITION_FRAMES = 15;
@@ -51,7 +67,7 @@ export function clampKeyframe(k: Keyframe, aspect: Aspect, iw: number, ih: numbe
 export function presetCamera(preset: CameraPreset, aspect: Aspect, iw: number, ih: number, base?: Camera): Camera {
   const z = readModeZoom(aspect);
   const at = (cy: number, zoom = z, cx = 0.5) => clampKeyframe({ cx, cy, zoom }, aspect, iw, ih);
-  const center = base?.start ?? at(0);
+  const center = base?.start ?? at(0.5);
   switch (preset) {
     case 'read-down':
       return { start: at(0), end: at(1), easing: 'linear' };
@@ -68,6 +84,30 @@ export function presetCamera(preset: CameraPreset, aspect: Aspect, iw: number, i
       const fit = at(0.5, Math.min(1, (FH * iw) / (ih * FW)));
       return { start: fit, end: fit, easing: 'linear' };
     }
+    // --- Cinematic presets ---
+    case 'pan-left':
+      return { start: at(0.5, z * 1.3, 0.8), end: at(0.5, z * 1.3, 0.2), easing: 'ease-in-out' };
+    case 'pan-right':
+      return { start: at(0.5, z * 1.3, 0.2), end: at(0.5, z * 1.3, 0.8), easing: 'ease-in-out' };
+    case 'diagonal-dr':
+      return { start: at(0.15, z * 1.2, 0.25), end: at(0.85, z * 1.2, 0.75), easing: 'ease-in-out' };
+    case 'diagonal-dl':
+      return { start: at(0.15, z * 1.2, 0.75), end: at(0.85, z * 1.2, 0.25), easing: 'ease-in-out' };
+    case 'dolly-in':
+      return { start: at(0.3, z * 0.8, 0.5), end: at(0.6, z * 2.0, 0.5), easing: 'ease-in' };
+    case 'crane-down':
+      return { start: at(0.1, z * 0.6), end: at(0.7, z * 1.4), easing: 'ease-out' };
+    case 'focus-pull': {
+      const wide = at(0.5, z * 0.5);
+      const tight = at(center.cy, z * 2.2, center.cx);
+      return { start: wide, end: tight, easing: 'ease-in-out' };
+    }
+    case 'orbit':
+      return { start: at(0.35, z * 1.4, 0.3), end: at(0.65, z * 1.4, 0.7), easing: 'ease-in-out' };
+    case 'whip-pan':
+      return { start: at(0.5, z * 1.5, 0.1), end: at(0.5, z * 1.5, 0.9), easing: 'ease-in' };
+    case 'drift':
+      return { start: at(0.4, z, 0.45), end: at(0.6, z, 0.55), easing: 'ease-in-out' };
   }
 }
 

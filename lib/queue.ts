@@ -68,7 +68,7 @@ export async function startOcrConsumer(): Promise<void> {
 
   try {
     const ch = await getChannel();
-    ch.prefetch(1); // one OCR job at a time — tesseract workers are heavy
+    ch.prefetch(1); // one OCR job at a time — the OCR sidecar is CPU-bound
 
     await ch.consume(OCR_QUEUE, async (msg) => {
       if (!msg) return;

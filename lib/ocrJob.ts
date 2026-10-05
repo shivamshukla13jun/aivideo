@@ -49,7 +49,7 @@ export async function runOcrJob(jobId: string): Promise<OcrJobResult> {
   }
 
   const failedOrders: number[] = [];
-  const provider: OcrProvider = isProviderAvailable(job.provider) ? (job.provider as OcrProvider) : 'tesseract';
+  const provider: OcrProvider = isProviderAvailable(job.provider) ? (job.provider as OcrProvider) : 'paddle';
   const overwrite = Boolean(job.overwriteScenes);
 
   for (let idx = 0; idx < pages.length; idx++) {
@@ -58,9 +58,10 @@ export async function runOcrJob(jobId: string): Promise<OcrJobResult> {
     if (retryOnly && !retryOnly.has(order)) continue;
 
     try {
-      // Prefer the MinIO object directly; fall back to the stored URL for legacy rows
-      const input = pageDoc0.publicId
-        ? await getFileBuffer(pageDoc0.publicId)
+      // Prefer the processed/edited image; fall back to the original
+      const key = pageDoc0.processedKey || pageDoc0.publicId;
+      const input = key
+        ? await getFileBuffer(key)
         : (pageDoc0.editedUrl || pageDoc0.originalUrl);
       // Provider errors (quota, network) fail the page so it can be retried
       const ocr = await extractPageText(input, provider);

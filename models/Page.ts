@@ -19,6 +19,8 @@ export interface IPageDoc extends Document {
   originalUrl: string;
   editedUrl?: string;
   publicId?: string;
+  /** MinIO key for the preprocessed (cleaned) image. */
+  processedKey?: string;
   /** English narration text extracted by OCR. */
   extractedText?: string;
   /** Hindi narration text (Devanagari). */
@@ -40,6 +42,7 @@ const PageSchema = new Schema<IPageDoc>(
     originalUrl: { type: String, required: true },
     editedUrl: { type: String },
     publicId: { type: String, default: '' },
+    processedKey: { type: String, default: '' },
     extractedText: { type: String, default: '' },
     extractedTextHi: { type: String, default: '' },
     ocrRaw: { type: String, default: '' },
@@ -51,6 +54,6 @@ const PageSchema = new Schema<IPageDoc>(
 );
 
 // A model cached by hot reload with an older schema would silently drop the newer fields
-if (mongoose.models.Page && !mongoose.models.Page.schema.path('extractedTextHi')) mongoose.deleteModel('Page');
+if (mongoose.models.Page && !mongoose.models.Page.schema.path('processedKey')) mongoose.deleteModel('Page');
 
 export const Page: Model<IPageDoc> = mongoose.models.Page || mongoose.model<IPageDoc>('Page', PageSchema);

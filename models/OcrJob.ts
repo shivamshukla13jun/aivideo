@@ -28,7 +28,7 @@ const OcrJobSchema = new Schema<IOcrJobDoc>(
     seriesId: { type: String, default: '' },
     seriesTitle: { type: String, default: '' },
     chapterName: { type: String, default: '' },
-    provider: { type: String, default: 'tesseract' },
+    provider: { type: String, default: 'paddle' },
     overwriteScenes: { type: Boolean, default: false },
     status: { type: String, enum: ['queued', 'running', 'done', 'failed'], default: 'queued', index: true },
     totalPages: { type: Number, default: 0 },

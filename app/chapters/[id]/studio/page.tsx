@@ -53,6 +53,11 @@ import {
   Eraser,
   Languages,
   RefreshCw,
+  Save,
+  ToggleLeft,
+  ToggleRight,
+  Wand2,
+  ImageIcon,
 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
@@ -82,6 +87,14 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   const [addProgress, setAddProgress] = useState('');
   const [batchDeleting, setBatchDeleting] = useState(false);
 
+  // Auto-save toggle (off by default)
+  const [autoSave, setAutoSave] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('studio-auto-save') === 'true';
+    return false;
+  });
+  const [preprocessingImages, setPreprocessingImages] = useState(false);
+  const [preprocessMessage, setPreprocessMessage] = useState('');
+
   // Status & Audio States
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
   const [lastSaved, setLastSaved] = useState<string>('Just now');
@@ -94,9 +107,9 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   const [extractingOcr, setExtractingOcr] = useState(false);
   const [ocrSuccessMessage, setOcrSuccessMessage] = useState('');
   const [ocrProviders, setOcrProviders] = useState<{ id: string; label: string; available: boolean; note: string }[]>([
-    { id: 'tesseract', label: 'Tesseract (offline, default)', available: true, note: '' },
+    { id: 'paddle', label: 'PaddleOCR (self-hosted)', available: true, note: '' },
   ]);
-  const [ocrProvider, setOcrProvider] = useState('tesseract');
+  const [ocrProvider, setOcrProvider] = useState('paddle');
   const [canTranslate, setCanTranslate] = useState(false);
   const [translating, setTranslating] = useState(false);
 
@@ -126,6 +139,8 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
     }
   }, [chapterId]);
 
+
+
   // Configured OCR engines; remember the last chosen one if it is still available
   useEffect(() => {
     fetch('/api/ocr-providers')
@@ -135,7 +150,9 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
         setOcrProviders(d.data);
         setCanTranslate(Boolean(d.canTranslate));
         const saved = localStorage.getItem('studio-ocr-provider');
-        if (saved && d.data.some((p: any) => p.id === saved && p.available)) setOcrProvider(saved);
+        const usable = (p: any) => p.id === saved && p.available;
+        if (saved && d.data.some(usable)) setOcrProvider(saved);
+        else if (d.data[0]) setOcrProvider(d.data[0].id); // fall back to the first provider
       })
       .catch(() => {});
   }, []);
@@ -249,27 +266,52 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
     setLastSaved(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
   };
 
+  const autoSaveRef = useRef(autoSave);
+  useEffect(() => { autoSaveRef.current = autoSave; }, [autoSave]);
+
+  const flushScene = useCallback(async (sceneId: string) => {
+    const body = pendingPatches.current[sceneId];
+    if (!body) return;
+    delete pendingPatches.current[sceneId];
+    setSaveStatus('saving');
+    try {
+      const res = await fetch(`/api/scenes/${sceneId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error('save failed');
+      markSaved();
+    } catch {
+      setSaveStatus('unsaved');
+    }
+  }, []);
+
   const patchScene = useCallback((sceneId: string, patch: Record<string, any>) => {
     setScenes((prev) => prev.map((s) => (s._id === sceneId ? { ...s, ...patch } : s)));
     pendingPatches.current[sceneId] = { ...(pendingPatches.current[sceneId] || {}), ...patch };
-    setSaveStatus('saving');
+    setSaveStatus('unsaved');
     clearTimeout(saveTimers.current[sceneId]);
-    saveTimers.current[sceneId] = setTimeout(async () => {
-      const body = pendingPatches.current[sceneId];
-      delete pendingPatches.current[sceneId];
-      try {
-        const res = await fetch(`/api/scenes/${sceneId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) throw new Error('save failed');
-        markSaved();
-      } catch {
-        setSaveStatus('unsaved');
-      }
-    }, 450);
-  }, []);
+    if (autoSaveRef.current) {
+      saveTimers.current[sceneId] = setTimeout(() => flushScene(sceneId), 450);
+    }
+  }, [flushScene]);
+
+  const saveAllPending = useCallback(async () => {
+    const ids = Object.keys(pendingPatches.current);
+    if (ids.length === 0) return;
+    await Promise.all(ids.map((id) => flushScene(id)));
+  }, [flushScene]);
+
+  const toggleAutoSave = () => {
+    const next = !autoSave;
+    setAutoSave(next);
+    localStorage.setItem('studio-auto-save', String(next));
+    if (next) {
+      // Flush any pending changes immediately
+      Object.keys(pendingPatches.current).forEach((id) => flushScene(id));
+    }
+  };
 
   const handleUpdateActiveScene = (field: string, value: any) => {
     if (activeScene) patchScene(activeScene._id, { [field]: value });
@@ -308,6 +350,35 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
       alert(e.message || 'Translation failed');
     } finally {
       setTranslating(false);
+    }
+  };
+
+  // Preprocess / clean all chapter images before OCR
+  const handlePreprocessImages = async () => {
+    setPreprocessingImages(true);
+    setPreprocessMessage('Processing images...');
+    try {
+      const res = await fetch(`/api/chapters/${chapterId}/preprocess`, { method: 'POST' });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.error || 'Image processing failed');
+        setPreprocessingImages(false);
+        setPreprocessMessage('');
+        return;
+      }
+      setPreprocessMessage(
+        `Processed ${data.done}/${data.total} images${data.failed?.length ? ` (${data.failed.length} failed)` : ''}`
+      );
+      // Refresh pages to show processed images
+      const pRes = await fetch(`/api/chapters/${chapterId}/pages`);
+      const pData = await pRes.json();
+      if (pData.success) setPages(pData.data);
+      setTimeout(() => setPreprocessMessage(''), 4500);
+    } catch (err) {
+      console.error(err);
+      alert('Image processing request failed');
+    } finally {
+      setPreprocessingImages(false);
     }
   };
 
@@ -673,7 +744,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
       : null;
   const selectedProviderInfo = ocrProviders.find((p) => p.id === ocrProvider);
   const activeCleanupCount = (activeScene?.cuts?.length || 0) + (activeScene?.hideBoxes?.length || 0);
-  const cameraFxValue = ['none', 'shake', 'pulse'].includes(activeScene?.effects) ? activeScene.effects : 'none';
+  const cameraFxValue = ['none', 'shake', 'pulse', 'float', 'heartbeat', 'zoom-pulse', 'breathe'].includes(activeScene?.effects) ? activeScene.effects : 'none';
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col select-none">
@@ -714,6 +785,29 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
             <span>Export / Publish</span>
           </button>
 
+          {/* Manual Save (when auto-save is off) */}
+          {!autoSave && saveStatus === 'unsaved' && (
+            <button
+              type="button"
+              onClick={saveAllPending}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>Save</span>
+            </button>
+          )}
+
+          {/* Auto-save toggle */}
+          <button
+            type="button"
+            onClick={toggleAutoSave}
+            className="flex items-center space-x-1.5 text-xs text-neutral-400 bg-neutral-950 px-3 py-1.5 rounded-xl border border-neutral-800 hover:text-white transition-colors"
+            title={autoSave ? 'Auto-save is ON — changes save automatically' : 'Auto-save is OFF — click Save to persist changes'}
+          >
+            {autoSave ? <ToggleRight className="w-4 h-4 text-emerald-400" /> : <ToggleLeft className="w-4 h-4 text-neutral-500" />}
+            <span>Auto-Save</span>
+          </button>
+
           <div className="flex items-center space-x-2 text-xs text-neutral-400 bg-neutral-950 px-3 py-1.5 rounded-xl border border-neutral-800">
             {saveStatus === 'saving' && (
               <span className="text-amber-400 flex items-center space-x-1">
@@ -721,8 +815,8 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                 <span>Saving...</span>
               </span>
             )}
-            {saveStatus === 'saved' && <span className="text-emerald-400">Saved ✓ ({lastSaved})</span>}
-            {saveStatus === 'unsaved' && <span className="text-neutral-400">Unsaved changes</span>}
+            {saveStatus === 'saved' && <span className="text-emerald-400">Saved ({lastSaved})</span>}
+            {saveStatus === 'unsaved' && <span className="text-amber-400">Unsaved changes</span>}
           </div>
         </div>
       </header>
@@ -896,6 +990,27 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                   <p className="text-[10px] text-neutral-500 mt-1">{selectedProviderInfo.note}</p>
                 )}
               </div>
+              {/* Step 0: Process images (clean before OCR) */}
+              <button
+                type="button"
+                onClick={handlePreprocessImages}
+                disabled={preprocessingImages || pages.length === 0}
+                className="w-full bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-white text-xs font-semibold py-2 px-2 rounded-xl flex items-center justify-center space-x-1.5 transition-all disabled:opacity-50"
+                title="Clean all page images: denoise, enhance contrast, remove watermarks, sharpen text. Run this BEFORE OCR for best results."
+              >
+                {preprocessingImages ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Wand2 className="w-3.5 h-3.5 text-cyan-400" />
+                )}
+                <span>{preprocessingImages ? preprocessMessage || 'Processing...' : '0. Process Images (Clean)'}</span>
+              </button>
+              {preprocessMessage && !preprocessingImages && (
+                <div className="p-2 bg-cyan-950/60 border border-cyan-800/80 rounded-xl text-[11px] text-cyan-300 text-center animate-fade-in">
+                  {preprocessMessage}
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -1308,8 +1423,16 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                     className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
                   >
                     <option value="none">None</option>
-                    <option value="shake">Impact Shake</option>
-                    <option value="pulse">Breathing Pulse</option>
+                    <optgroup label="Action">
+                      <option value="shake">Impact Shake</option>
+                      <option value="pulse">Breathing Pulse</option>
+                      <option value="heartbeat">Heartbeat</option>
+                      <option value="zoom-pulse">Zoom Pulse</option>
+                    </optgroup>
+                    <optgroup label="Mood">
+                      <option value="float">Gentle Float</option>
+                      <option value="breathe">Slow Breathe</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div>
@@ -1320,10 +1443,29 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                     className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
                   >
                     <option value="none">None (clean art)</option>
-                    <option value="vignette">Dark Vignette</option>
-                    <option value="speed-lines">Manga Speed Lines</option>
-                    <option value="bloom">Vivid Glow</option>
-                    <option value="flash">Impact Flash</option>
+                    <optgroup label="Cinematic">
+                      <option value="vignette">Dark Vignette</option>
+                      <option value="letterbox">Letterbox Bars</option>
+                      <option value="focus-blur">Depth of Field</option>
+                      <option value="film-grain">Film Grain</option>
+                    </optgroup>
+                    <optgroup label="Action / Impact">
+                      <option value="speed-lines">Manga Speed Lines</option>
+                      <option value="flash">Impact Flash</option>
+                      <option value="bloom">Vivid Glow</option>
+                    </optgroup>
+                    <optgroup label="Color / Tone">
+                      <option value="sepia">Sepia (Flashback)</option>
+                      <option value="noir">Noir (B&W)</option>
+                      <option value="high-contrast">High Contrast</option>
+                      <option value="color-wash-warm">Warm Tint</option>
+                      <option value="color-wash-cool">Cool Tint</option>
+                    </optgroup>
+                    <optgroup label="Atmosphere">
+                      <option value="rain">Rain</option>
+                      <option value="particles">Floating Particles</option>
+                      <option value="manga-tone">Manga Screentone</option>
+                    </optgroup>
                   </select>
                 </div>
               </section>

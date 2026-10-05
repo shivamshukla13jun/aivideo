@@ -15,13 +15,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const body = await req.json().catch(() => ({}));
     const targetOrders: number[] | null = Array.isArray(body.orders) ? body.orders : null;
-    const provider = typeof body.provider === 'string' ? body.provider : 'tesseract';
-    if (!isProviderAvailable(provider)) {
-      return NextResponse.json(
-        { success: false, error: `OCR provider "${provider}" is not configured — add its API key to .env` },
-        { status: 400 }
-      );
-    }
+    const provider = 'paddle'; // only provider — the self-hosted PaddleOCR service
 
     await connectDB();
 
