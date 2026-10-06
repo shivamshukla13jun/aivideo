@@ -108,6 +108,7 @@ export async function statFile(objectKey: string) {
 
 export async function deleteFile(objectKey: string): Promise<void> {
   try {
+    await ensureBucket();
     await getMinio().removeObject(MINIO_BUCKET, objectKey);
   } catch (e) {
     console.warn('MinIO delete failed:', objectKey, e);
@@ -118,9 +119,14 @@ export async function deleteFile(objectKey: string): Promise<void> {
 export async function deleteFilesByPrefix(prefix: string): Promise<number> {
   const mc = getMinio();
   const keys: string[] = [];
-  const stream = mc.listObjectsV2(MINIO_BUCKET, prefix, true);
-  for await (const obj of stream) {
-    if (obj.name) keys.push(obj.name);
+  try {
+    await ensureBucket();
+    const stream = mc.listObjectsV2(MINIO_BUCKET, prefix, true);
+    for await (const obj of stream) {
+      if (obj.name) keys.push(obj.name);
+    }
+  } catch {
+    return 0; // Bucket doesn't exist yet — nothing to delete
   }
   if (keys.length === 0) return 0;
   await mc.removeObjects(MINIO_BUCKET, keys);
@@ -132,6 +138,11 @@ export async function deleteFiles(keys: string[]): Promise<number> {
   const valid = keys.filter(Boolean);
   if (valid.length === 0) return 0;
   const mc = getMinio();
-  await mc.removeObjects(MINIO_BUCKET, valid);
+  try {
+    await ensureBucket();
+    await mc.removeObjects(MINIO_BUCKET, valid);
+  } catch {
+    return 0;
+  }
   return valid.length;
 }
