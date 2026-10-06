@@ -6,8 +6,8 @@
  * runs the lightweight PP-OCR mobile models on CPU, groups detections into
  * speech bubbles, and returns bubble text in reading order.
  *
- * Hindi narration still comes from translateText() (Gemini or Google
- * Translate — whichever key is configured); it stays empty if neither is.
+ * Hindi translation is done by the same OCR server via /translate
+ * (deep-translator, free, no API key needed).
  */
 
 export type OcrProvider = 'paddle';
@@ -18,14 +18,11 @@ export interface OcrResult {
   raw: string;
   /** Cleaned English narration. */
   en: string;
-  /** Hindi narration (Devanagari); '' when no translator is configured. */
+  /** Hindi narration (Devanagari). */
   hi: string;
 }
 
 const paddleUrl = () => (process.env.PADDLEOCR_URL || 'http://localhost:5004').replace(/\/+$/, '');
-const geminiKey = () => process.env.GEMINI_API_KEY?.trim() || '';
-const googleKey = () => (process.env.GOOGLE_VISION_API_KEY || process.env.GOOGLE_CLOUD_API_KEY || '').trim();
-const GEMINI_MODEL = process.env.GEMINI_OCR_MODEL?.trim() || 'gemini-2.5-flash';
 
 export function listOcrProviders() {
   return [
@@ -33,7 +30,7 @@ export function listOcrProviders() {
       id: 'paddle' as const,
       label: 'PaddleOCR (self-hosted, lightweight)',
       available: true,
-      note: geminiKey() || googleKey() ? 'Hindi via translation API' : 'No translator configured — Hindi left empty',
+      note: 'Hindi via OCR server /translate (free, no key needed)',
     },
   ];
 }
@@ -94,10 +91,10 @@ function cleanLines(lines: string[]) {
       l
         .replace(/[|_~`^<>{}[\]\\]/g, ' ')
         // Common comic-font confusions: "...7" / "WHAT7" → "?", "NO1" → "!"
-        .replace(/(\.{2,}|…|[A-Za-z])7(?=["'”’)]?(\s|$))/g, '$1?')
-        .replace(/([A-Za-z])1(?=["'”’)]?(\s|$))/g, '$1!')
+        .replace(/(\.{2,}|…|[A-Za-z])7(?=["'"')]?(\s|$))/g, '$1?')
+        .replace(/([A-Za-z])1(?=["'"')]?(\s|$))/g, '$1!')
         // Trailing stray symbols left by bubble borders
-        .replace(/(\s+[^A-Za-z0-9\s.,!?…'"”’-]{1,3})+$/g, '')
+        .replace(/(\s+[^A-Za-z0-9\s.,!?…'""'-]{1,3})+$/g, '')
         .replace(/\s+/g, ' ')
         .trim()
     )
@@ -134,68 +131,31 @@ async function paddleLines(buf: Buffer): Promise<string[]> {
 }
 
 /* ------------------------------------------------------------------ */
-/* Translation (Hindi)                                                 */
+/* Translation (via OCR server /translate — free, no API key)          */
 /* ------------------------------------------------------------------ */
 
+/** Translation is always available since it uses the OCR server's /translate endpoint (deep-translator). */
 export function canTranslate() {
-  return Boolean(geminiKey() || googleKey());
+  return true;
 }
 
-async function geminiJson<T>(parts: any[], schema: any): Promise<T> {
-  const { GoogleGenAI } = await import('@google/genai');
-  const ai = new GoogleGenAI({ apiKey: geminiKey() });
-  const result = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: [{ role: 'user', parts }],
-    config: { responseMimeType: 'application/json', responseSchema: schema, temperature: 0.2 },
-  });
-  const text = (result.text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
-  return JSON.parse(text) as T;
-}
-
-/** Translate English narration to Hindi (Devanagari) with whichever service is configured. */
+/** Translate text via the OCR server's /translate endpoint. */
 export async function translateText(text: string, target: 'hi' | 'en' = 'hi'): Promise<string> {
   const clean = text.trim();
   if (!clean) return '';
 
-  if (geminiKey()) {
-    const { Type } = await import('@google/genai');
-    const langPrompt =
-      target === 'hi'
-        ? `Translate this manga/webtoon narration into natural, everyday spoken Hindi (Devanagari script).
-
-Rules:
-- Sound like a real person talking casually, NOT like a textbook or Google Translate.
-- Use the kind of Hindi people actually speak — mix in common Hinglish words if it sounds more natural (e.g. "fight", "power", "attack" can stay in English).
-- Keep character names, place names, and technique names unchanged.
-- Use conversational tone: "यार", "भाई", "अरे" type expressions where they fit the mood.
-- Match the emotion — if the original is intense, keep it intense; if funny, keep it funny.
-- Keep it suitable for a YouTube voice-over narration.
-- Do NOT add extra commentary or explanations — just translate what's there.`
-        : `Translate this into natural, fluent English suitable for voice-over narration. Keep names unchanged.`;
-    const out = await geminiJson<{ text: string }>(
-      [
-        {
-          text: `${langPrompt}\n\nReturn JSON {"text": "..."}.\n\n${clean}`,
-        },
-      ],
-      { type: Type.OBJECT, properties: { text: { type: Type.STRING } }, required: ['text'] }
-    );
-    return (out.text || '').trim();
+  const source = target === 'hi' ? 'en' : 'hi';
+  const res = await fetch(`${paddleUrl()}/translate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: clean, target, source }),
+    signal: AbortSignal.timeout(30000),
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json?.success) {
+    throw new Error(json?.error || `Translation service error ${res.status}`);
   }
-
-  if (googleKey()) {
-    const res = await fetch(`https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(googleKey())}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ q: clean, target, format: 'text' }),
-    });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json?.error?.message || `Translate API error ${res.status}`);
-    return String(json.data?.translations?.[0]?.translatedText || '').trim();
-  }
-
-  return '';
+  return (json.text || '').trim();
 }
 
 /* ------------------------------------------------------------------ */
@@ -214,7 +174,7 @@ export async function extractPageText(input: string | Buffer, _provider: OcrProv
   const lines = await paddleLines(buf);
   const en = toNarration(lines);
   let hi = '';
-  if (en && canTranslate()) {
+  if (en) {
     try {
       hi = await translateText(en, 'hi');
     } catch (e: any) {

@@ -36,7 +36,6 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 # Redirect URI to register: {APP_URL}/api/youtube/auth/callback
 GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
-GEMINI_API_KEY=your_gemini_api_key   # used for AI SEO generation
 ```
 
 ---

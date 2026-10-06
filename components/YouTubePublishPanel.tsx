@@ -184,7 +184,7 @@ export default function YouTubePublishPanel({ chapterId, chapterTitle, scenes, a
         setTitle(data.data.title);
         setDescription(data.data.description);
         setTagsText((data.data.tags || []).join(', '));
-        setSeoSource(data.source === 'gemini' ? 'AI-generated (Gemini)' : 'Auto-generated');
+        setSeoSource('Auto-generated');
       } else {
         alert(data.error || 'SEO generation failed');
       }

@@ -1494,7 +1494,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                       onClick={handleTranslateToHindi}
                       disabled={translating || !activeScene.narration?.trim() || !canTranslate}
                       className="text-[10px] text-indigo-400 hover:text-indigo-300 disabled:opacity-40 flex items-center space-x-1"
-                      title={canTranslate ? 'Translate the English narration to Hindi' : 'Set GEMINI_API_KEY or GOOGLE_CLOUD_API_KEY to enable'}
+                      title={canTranslate ? 'Translate the English narration to Hindi' : 'OCR server /translate endpoint unreachable'}
                     >
                       {translating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Languages className="w-3 h-3" />}
                       <span>Translate EN → HI</span>
