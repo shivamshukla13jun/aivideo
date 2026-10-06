@@ -113,3 +113,25 @@ export async function deleteFile(objectKey: string): Promise<void> {
     console.warn('MinIO delete failed:', objectKey, e);
   }
 }
+
+/** Delete all objects under a prefix (e.g. `chapters/<id>/`). Returns count. */
+export async function deleteFilesByPrefix(prefix: string): Promise<number> {
+  const mc = getMinio();
+  const keys: string[] = [];
+  const stream = mc.listObjectsV2(MINIO_BUCKET, prefix, true);
+  for await (const obj of stream) {
+    if (obj.name) keys.push(obj.name);
+  }
+  if (keys.length === 0) return 0;
+  await mc.removeObjects(MINIO_BUCKET, keys);
+  return keys.length;
+}
+
+/** Delete multiple specific keys. Tolerates missing objects. Returns count. */
+export async function deleteFiles(keys: string[]): Promise<number> {
+  const valid = keys.filter(Boolean);
+  if (valid.length === 0) return 0;
+  const mc = getMinio();
+  await mc.removeObjects(MINIO_BUCKET, valid);
+  return valid.length;
+}

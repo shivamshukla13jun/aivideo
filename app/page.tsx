@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Navbar from '@/components/Navbar';
 import OcrJobsPanel from '@/components/OcrJobsPanel';
 import Link from 'next/link';
-import { BookOpen, Play, Search, Star, Clock, Layers, RefreshCw, Plus } from 'lucide-react';
+import { BookOpen, Play, Search, Star, Clock, Layers, RefreshCw, Plus, Trash2, Loader2, AlertTriangle } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +14,9 @@ export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('All');
   const [loading, setLoading] = useState(true);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState('');
 
   const loadData = async () => {
     try {
@@ -37,8 +40,23 @@ export default function HomePage() {
   useEffect(() => {
     const t = setTimeout(loadData, 0);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleDeleteSeries = async (id: string) => {
+    setDeletingId(id);
+    setDeleteError('');
+    try {
+      const res = await fetch(`/api/series/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Delete failed');
+      setConfirmDeleteId(null);
+      setSeriesList((prev) => prev.filter((s) => s._id !== id));
+    } catch (err: any) {
+      setDeleteError(err.message || 'Failed to delete series');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const genres = ['All', 'Action', 'Fantasy', 'Adventure', 'Sports', 'Drama', 'Psychological', 'Romance'];
 
@@ -211,6 +229,14 @@ export default function HomePage() {
             </div>
           </div>
 
+          {deleteError && (
+            <div className="bg-red-600/20 border border-red-500/30 rounded-xl px-4 py-3 flex items-center space-x-2 text-red-400 text-sm">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span>{deleteError}</span>
+              <button onClick={() => setDeleteError('')} className="ml-auto text-red-400 hover:text-white text-xs">Dismiss</button>
+            </div>
+          )}
+
           {loading ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 animate-pulse">
               {[1, 2, 3, 4, 5].map((n) => (
@@ -225,44 +251,73 @@ export default function HomePage() {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
               {filteredSeries.map((series) => (
-                <Link
+                <div
                   key={series._id}
-                  href={`/series/${series._id}`}
-                  className="group flex flex-col bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden hover:border-indigo-500/50 transition-all hover:shadow-xl hover:-translate-y-1"
+                  className="group relative flex flex-col bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden hover:border-indigo-500/50 transition-all hover:shadow-xl hover:-translate-y-1"
                 >
-                  <div className="relative aspect-[3/4] w-full overflow-hidden bg-neutral-800">
-                    {series.coverImage ? (
-                      <img
-                        src={series.coverImage}
-                        alt={series.title}
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-neutral-700">
-                        <BookOpen className="w-10 h-10" />
+                  <Link href={`/series/${series._id}`} className="flex flex-col flex-1">
+                    <div className="relative aspect-[3/4] w-full overflow-hidden bg-neutral-800">
+                      {series.coverImage ? (
+                        <img
+                          src={series.coverImage}
+                          alt={series.title}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-neutral-700">
+                          <BookOpen className="w-10 h-10" />
+                        </div>
+                      )}
+                      <div className="absolute top-2 right-2 bg-neutral-950/80 backdrop-blur-md px-2.5 py-1 rounded-full text-[10px] font-bold text-indigo-400 uppercase">
+                        {series.status}
                       </div>
-                    )}
-                    <div className="absolute top-2 right-2 bg-neutral-950/80 backdrop-blur-md px-2.5 py-1 rounded-full text-[10px] font-bold text-indigo-400 uppercase">
-                      {series.status}
                     </div>
-                  </div>
-                  <div className="p-4 flex flex-col flex-1 justify-between">
-                    <div>
-                      <h3 className="font-bold text-white text-sm line-clamp-1 group-hover:text-indigo-400 transition-colors">
-                        {series.title}
-                      </h3>
-                      <p className="text-xs text-neutral-400 line-clamp-1 mt-0.5">{series.author}</p>
+                    <div className="p-4 flex flex-col flex-1 justify-between">
+                      <div>
+                        <h3 className="font-bold text-white text-sm line-clamp-1 group-hover:text-indigo-400 transition-colors">
+                          {series.title}
+                        </h3>
+                        <p className="text-xs text-neutral-400 line-clamp-1 mt-0.5">{series.author}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-1 mt-3">
+                        {series.genres?.slice(0, 2).map((g: string) => (
+                          <span key={g} className="bg-neutral-800 text-neutral-300 text-[10px] font-medium px-2 py-0.5 rounded-md">
+                            {g}
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-1 mt-3">
-                      {series.genres?.slice(0, 2).map((g: string) => (
-                        <span key={g} className="bg-neutral-800 text-neutral-300 text-[10px] font-medium px-2 py-0.5 rounded-md">
-                          {g}
-                        </span>
-                      ))}
+                  </Link>
+                  {/* Delete button */}
+                  {confirmDeleteId === series._id ? (
+                    <div className="absolute bottom-0 inset-x-0 bg-neutral-950/95 backdrop-blur p-3 flex items-center justify-center gap-2 z-10">
+                      <button
+                        onClick={() => handleDeleteSeries(series._id)}
+                        disabled={deletingId === series._id}
+                        className="flex items-center space-x-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                      >
+                        {deletingId === series._id ? <Loader2 className="w-3 h-3 animate-spin" /> : <AlertTriangle className="w-3 h-3" />}
+                        <span>{deletingId === series._id ? 'Deleting...' : 'Confirm'}</span>
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteId(null)}
+                        disabled={deletingId === series._id}
+                        className="text-neutral-400 hover:text-white text-xs px-2 py-1.5 transition-colors"
+                      >
+                        Cancel
+                      </button>
                     </div>
-                  </div>
-                </Link>
+                  ) : (
+                    <button
+                      onClick={() => { setConfirmDeleteId(series._id); setDeleteError(''); }}
+                      className="absolute top-2 left-2 bg-red-600/80 hover:bg-red-600 text-white p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                      title="Delete series"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           )}

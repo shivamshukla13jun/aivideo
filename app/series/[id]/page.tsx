@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, use } from 'react';
 import Navbar from '@/components/Navbar';
 import Link from 'next/link';
-import { BookOpen, Film, Library, RefreshCw, Loader2, Upload, FileArchive } from 'lucide-react';
+import { BookOpen, Film, Library, RefreshCw, Loader2, Upload, FileArchive, Trash2, AlertTriangle } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +24,13 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
   const [chapterTitle, setChapterTitle] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+
+  // Delete state
+  const [deletingChapterId, setDeletingChapterId] = useState<string | null>(null);
+  const [confirmDeleteChapter, setConfirmDeleteChapter] = useState<string | null>(null);
+  const [deletingSeries, setDeletingSeries] = useState(false);
+  const [confirmDeleteSeries, setConfirmDeleteSeries] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   const loadDetails = async () => {
     try {
@@ -103,6 +110,37 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
       setUploadError(err.message || 'Upload failed');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleDeleteChapter = async (chapterId: string) => {
+    setDeletingChapterId(chapterId);
+    setDeleteError('');
+    try {
+      const res = await fetch(`/api/chapters/${chapterId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Delete failed');
+      setConfirmDeleteChapter(null);
+      setChapters((prev) => prev.filter((c) => c._id !== chapterId));
+    } catch (err: any) {
+      setDeleteError(err.message || 'Failed to delete chapter');
+    } finally {
+      setDeletingChapterId(null);
+    }
+  };
+
+  const handleDeleteSeries = async () => {
+    setDeletingSeries(true);
+    setDeleteError('');
+    try {
+      const res = await fetch(`/api/series/${seriesId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Delete failed');
+      // Navigate away — series no longer exists
+      window.location.href = '/';
+    } catch (err: any) {
+      setDeleteError(err.message || 'Failed to delete series');
+      setDeletingSeries(false);
     }
   };
 
@@ -199,6 +237,33 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
                 <RefreshCw className={`w-4 h-4 text-emerald-400 ${refreshing ? 'animate-spin' : ''}`} />
                 <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
               </button>
+              {!confirmDeleteSeries ? (
+                <button
+                  onClick={() => { setConfirmDeleteSeries(true); setDeleteError(''); }}
+                  className="flex items-center space-x-2 bg-red-600/20 hover:bg-red-600/40 text-red-400 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all border border-red-500/30"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Delete Series</span>
+                </button>
+              ) : (
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={handleDeleteSeries}
+                    disabled={deletingSeries}
+                    className="flex items-center space-x-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all shadow"
+                  >
+                    {deletingSeries ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}
+                    <span>{deletingSeries ? 'Deleting...' : 'Confirm Delete'}</span>
+                  </button>
+                  <button
+                    onClick={() => setConfirmDeleteSeries(false)}
+                    disabled={deletingSeries}
+                    className="text-neutral-400 hover:text-white text-sm px-3 py-2.5 rounded-xl transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -248,6 +313,14 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
           <p className="text-[11px] text-neutral-500">A .cbz is a ZIP archive of the chapter&apos;s page images. Pages are extracted and stored in MinIO.</p>
         </form>
 
+        {deleteError && (
+          <div className="bg-red-600/20 border border-red-500/30 rounded-xl px-4 py-3 flex items-center space-x-2 text-red-400 text-sm">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            <span>{deleteError}</span>
+            <button onClick={() => setDeleteError('')} className="ml-auto text-red-400 hover:text-white text-xs">Dismiss</button>
+          </div>
+        )}
+
         {/* Chapters Section */}
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold text-white flex items-center space-x-2">
@@ -295,6 +368,33 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
                     <Film className="w-3.5 h-3.5" />
                     <span>Video Studio</span>
                   </Link>
+                  {confirmDeleteChapter === chap._id ? (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleDeleteChapter(chap._id)}
+                        disabled={deletingChapterId === chap._id}
+                        className="inline-flex items-center justify-center space-x-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-4 py-2 rounded-xl text-xs font-semibold transition-all shadow"
+                      >
+                        {deletingChapterId === chap._id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                        <span>{deletingChapterId === chap._id ? 'Deleting...' : 'Confirm'}</span>
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteChapter(null)}
+                        disabled={deletingChapterId === chap._id}
+                        className="text-neutral-400 hover:text-white text-xs px-2 py-2 rounded-xl transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setConfirmDeleteChapter(chap._id); setDeleteError(''); }}
+                      className="flex-shrink-0 inline-flex items-center justify-center space-x-1.5 bg-red-600/20 hover:bg-red-600/40 text-red-400 px-4 py-2 rounded-xl text-xs font-semibold transition-all border border-red-500/30"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete</span>
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
