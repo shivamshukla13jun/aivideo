@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, use } from 'r
 import Link from 'next/link';
 import { Player, type PlayerRef } from '@remotion/player';
 import Navbar from '@/components/Navbar';
-import YouTubePublishPanel from '@/components/YouTubePublishPanel';
+import MultiPlatformPublishPanel from '@/components/MultiPlatformPublishPanel';
 import CameraEditor from '@/components/video/CameraEditor';
 import { WebtoonVideo } from '@/components/video/WebtoonVideo';
 import {
@@ -42,7 +42,7 @@ import {
   Eye,
   EyeOff,
   ScanText,
-  Youtube,
+  Globe,
   Scissors,
   ChevronUp,
   ChevronDown,
@@ -779,10 +779,10 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
           <button
             type="button"
             onClick={() => setShowPublishPanel(true)}
-            className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow"
+            className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:via-purple-500 hover:to-pink-500 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow"
           >
-            <Youtube className="w-3.5 h-3.5" />
-            <span>Export / Publish</span>
+            <Globe className="w-3.5 h-3.5" />
+            <span>Publish Everywhere</span>
           </button>
 
           {/* Manual Save (when auto-save is off) */}
@@ -1557,7 +1557,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
       </div>
 
       {showPublishPanel && (
-        <YouTubePublishPanel
+        <MultiPlatformPublishPanel
           chapterId={chapterId}
           chapterTitle={chapter?.title}
           scenes={scenes}

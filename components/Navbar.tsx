@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Sparkles, Home, Library, Youtube, Plus } from 'lucide-react';
+import { Sparkles, Home, Library, Youtube, Plus, Globe } from 'lucide-react';
 
 export default function Navbar() {
   return (
@@ -25,6 +25,10 @@ export default function Navbar() {
             <Link href="/youtube" className="hover:text-white transition-colors flex items-center space-x-1.5">
               <Youtube className="w-4 h-4 text-red-500" />
               <span>YouTube</span>
+            </Link>
+            <Link href="/distribute" className="hover:text-white transition-colors flex items-center space-x-1.5">
+              <Globe className="w-4 h-4 text-indigo-400" />
+              <span>Distribute</span>
             </Link>
           </nav>
         </div>
