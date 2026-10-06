@@ -5,6 +5,7 @@ import Navbar from '@/components/Navbar';
 import Link from 'next/link';
 import { BookOpen, Film, Library, RefreshCw, Loader2, Upload, FileArchive, Trash2, AlertTriangle } from 'lucide-react';
 import { uploadWithProgress, formatBytes } from '@/lib/uploadWithProgress';
+import { extractCbzInBrowser } from '@/lib/cbzClient';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,6 +67,20 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seriesId]);
 
+  // Poll while any chapter is still processing
+  useEffect(() => {
+    const hasProcessing = chapters.some((c) => c.status === 'processing');
+    if (!hasProcessing) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/chapters?seriesId=${seriesId}`);
+        const data = await res.json();
+        if (data.success) setChapters(data.data);
+      } catch { /* ignore */ }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [chapters, seriesId]);
+
   const handleRefresh = async () => {
     setRefreshing(true);
     await loadDetails();
@@ -96,19 +111,60 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
     setUploading(true);
     setUploadError('');
     setUploadProgress(0);
-    setUploadProgressLabel('');
+    setUploadProgressLabel('Extracting pages from CBZ…');
     try {
-      const fd = new FormData();
-      fd.append('cbz', cbzFile);
-      fd.append('seriesId', seriesId);
-      fd.append('chapterNumber', chapterNumber);
-      if (chapterTitle.trim()) fd.append('title', chapterTitle.trim());
-      const data = await uploadWithProgress('/api/chapters', fd, (pct, loaded, total) => {
-        setUploadProgress(pct);
-        setUploadProgressLabel(`${formatBytes(loaded)} / ${formatBytes(total)}`);
+      // 1. Extract page images from CBZ in the browser
+      const pages = await extractCbzInBrowser(cbzFile);
+      if (pages.length === 0) throw new Error('No image pages found in the CBZ file');
+
+      // 2. Create the chapter doc (JSON, fast)
+      setUploadProgressLabel('Creating chapter…');
+      const createRes = await fetch('/api/chapters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          seriesId,
+          chapterNumber: parseFloat(chapterNumber),
+          title: chapterTitle.trim() || `Chapter ${chapterNumber}`,
+        }),
       });
-      if (!data.success) throw new Error(data.error || 'Upload failed');
+      const createData = await createRes.json();
+      if (!createData.success) throw new Error(createData.error || 'Failed to create chapter');
+      const chapterId = createData.data._id;
+
+      // 3. Upload each page one-by-one in order — skip duplicates (409)
+      let uploaded = 0;
+      let skipped = 0;
+      for (let i = 0; i < pages.length; i++) {
+        const page = pages[i];
+        const pct = Math.round(((i + 1) / pages.length) * 100);
+        setUploadProgress(pct);
+        setUploadProgressLabel(`Uploading page ${page.order}/${pages.length} — ${page.fileName} (${formatBytes(page.size)})`);
+
+        const fd = new FormData();
+        fd.append('page', page.blob, page.fileName);
+        fd.append('order', String(page.order));
+        const res = await fetch(`/api/chapters/${chapterId}/pages`, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (res.status === 409) {
+          skipped++; // duplicate order — already exists, skip
+          continue;
+        }
+        if (!data.success) throw new Error(`Page ${page.order}: ${data.error || 'upload failed'}`);
+        uploaded++;
+      }
+      if (skipped > 0) {
+        setUploadProgressLabel(`Uploaded ${uploaded} pages, skipped ${skipped} duplicates`);
+      }
+
+      // 4. Finalize — mark chapter ready
+      setUploadProgressLabel('Finalizing…');
+      const finRes = await fetch(`/api/chapters/${chapterId}/finalize`, { method: 'POST' });
+      const finData = await finRes.json();
+      if (!finData.success) throw new Error(finData.error || 'Finalize failed');
+
       setUploadProgress(100);
+      setUploadProgressLabel(`Done — ${pages.length} pages uploaded`);
       setCbzFile(null);
       setChapterNumber('');
       setChapterTitle('');
@@ -335,7 +391,7 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
             </div>
           )}
           {uploadError && <p className="text-xs text-red-400">{uploadError}</p>}
-          <p className="text-[11px] text-neutral-500">A .cbz is a ZIP archive of the chapter&apos;s page images. Pages are extracted and stored in MinIO.</p>
+          <p className="text-[11px] text-neutral-500">A .cbz is a ZIP archive of the chapter&apos;s page images. Pages are extracted in your browser, then uploaded one by one to MinIO.</p>
         </form>
 
         {deleteError && (
@@ -373,26 +429,45 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
                   <div>
                     <h3 className="font-bold text-white text-base">{chap.title}</h3>
                     <p className="text-xs text-neutral-400">
-                      Chapter #{chap.chapterNumber} • {chap.pages?.length || 0} pages • {chap.status}
+                      Chapter #{chap.chapterNumber} • {chap.pages?.length || 0} pages •{' '}
+                      {chap.status === 'processing' ? (
+                        <span className="text-amber-400 inline-flex items-center space-x-1">
+                          <Loader2 className="w-3 h-3 animate-spin inline" />
+                          <span>Extracting pages…</span>
+                        </span>
+                      ) : chap.status === 'error' ? (
+                        <span className="text-red-400">Error — try re-uploading</span>
+                      ) : (
+                        <span>{chap.status}</span>
+                      )}
                     </p>
                   </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-end">
-                  <Link
-                    href={`/chapters/${chap._id}/reader`}
-                    className="flex-1 sm:flex-none inline-flex items-center justify-center space-x-1.5 bg-neutral-800 hover:bg-neutral-700 text-white px-4 py-2 rounded-xl text-xs font-semibold transition-all border border-neutral-700"
-                  >
-                    <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Reader</span>
-                  </Link>
-                  <Link
-                    href={`/chapters/${chap._id}/studio`}
-                    className="flex-1 sm:flex-none inline-flex items-center justify-center space-x-1.5 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-xl text-xs font-semibold transition-all shadow"
-                  >
-                    <Film className="w-3.5 h-3.5" />
-                    <span>Video Studio</span>
-                  </Link>
+                  {chap.status === 'processing' ? (
+                    <span className="inline-flex items-center space-x-2 text-amber-400 text-xs font-semibold px-4 py-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Processing…</span>
+                    </span>
+                  ) : (
+                    <>
+                      <Link
+                        href={`/chapters/${chap._id}/reader`}
+                        className="flex-1 sm:flex-none inline-flex items-center justify-center space-x-1.5 bg-neutral-800 hover:bg-neutral-700 text-white px-4 py-2 rounded-xl text-xs font-semibold transition-all border border-neutral-700"
+                      >
+                        <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Reader</span>
+                      </Link>
+                      <Link
+                        href={`/chapters/${chap._id}/studio`}
+                        className="flex-1 sm:flex-none inline-flex items-center justify-center space-x-1.5 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-xl text-xs font-semibold transition-all shadow"
+                      >
+                        <Film className="w-3.5 h-3.5" />
+                        <span>Video Studio</span>
+                      </Link>
+                    </>
+                  )}
                   {confirmDeleteChapter === chap._id ? (
                     <div className="flex items-center gap-2">
                       <button

@@ -2,7 +2,12 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: [
-    '*',
+    // ngrok tunnel — update if the domain changes on restart
+    'overtone-shakily-overbook.ngrok-free.dev',
+    '*.ngrok-free.dev',
+    '*.ngrok.io',
+    'localhost',
+    '127.0.0.1',
   ],
   async rewrites() {
     return [
