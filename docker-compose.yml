@@ -3,55 +3,65 @@ services:
     image: bitnamilegacy/minio:latest
     container_name: minio
     restart: unless-stopped
-    user: root
-
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Web console
-
+      - "9000:9000"
+      - "9001:9001"
     environment:
-      TZ: Asia/Kolkata
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
-
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
     volumes:
-      - minio_data:/data
+      - minio_data:/bitnami/minio/data
+    command:
+      - minio
+      - server
+      - /bitnami/minio/data
+      - --console-address
+      - ":9001"
 
-    command: server /data --console-address ":9001"
-
-  paddleocr:
-    build: ./ocr-server
-    container_name: paddleocr
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: docks2doc-mosquitto
     restart: unless-stopped
-
     ports:
-      - "5004:5004"
-
-    environment:
-      TZ: Asia/Kolkata
-
+      - "1883:1883"
+      - "9002:9002"
     volumes:
-      - paddle_models:/models   # OCR model cache — avoids re-downloading
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
 
-  # rabbitmq:
-  #   image: rabbitmq:3-management
-  #   container_name: rabbitmq
-  #   restart: unless-stopped
-  #
-  #   ports:
-  #     - "5672:5672"
-  #     - "15672:15672"
-  #
-  #   volumes:
-  #     - rabbitmq_data:/var/lib/rabbitmq
-  #
-  #   environment:
-  #     RABBITMQ_DEFAULT_USER: admin
-  #     RABBITMQ_DEFAULT_PASS: admin123
-  #     TZ: Asia/Kolkata
+  redis:
+    image: redis:latest
+    container_name: redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --bind
+      - 0.0.0.0
+      - --requirepass
+      - redis123
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+      TZ: Asia/Kolkata
 
 volumes:
   minio_data:
-  paddle_models:
-  # rabbitmq_data:
-  #   name: rabbitmq_data
+  mosquitto_data:
+  mosquitto_log:
+  redis_data:
+  rabbitmq_data:
