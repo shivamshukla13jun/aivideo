@@ -5,6 +5,7 @@ import Navbar from '@/components/Navbar';
 import { BookOpen, ArrowLeft, Loader2, Upload, ImagePlus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { uploadWithProgress, formatBytes } from '@/lib/uploadWithProgress';
 
 export default function NewSeriesPage() {
   const router = useRouter();
@@ -14,6 +15,8 @@ export default function NewSeriesPage() {
   const [coverPreview, setCoverPreview] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState('');
 
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -28,17 +31,23 @@ export default function NewSeriesPage() {
     if (!form.title.trim()) return setError('Title is required');
     setSaving(true);
     setError('');
+    setProgress(0);
+    setProgressLabel('');
     try {
       const fd = new FormData();
       Object.entries(form).forEach(([k, v]) => fd.append(k, v));
       if (cover) fd.append('cover', cover);
-      const res = await fetch('/api/series', { method: 'POST', body: fd });
-      const data = await res.json();
+      const data = await uploadWithProgress('/api/series', fd, (pct, loaded, total) => {
+        setProgress(pct);
+        setProgressLabel(`${formatBytes(loaded)} / ${formatBytes(total)}`);
+      });
       if (!data.success) throw new Error(data.error || 'Failed to create series');
+      setProgress(100);
       router.push(`/series/${data.data._id}`);
     } catch (err: any) {
       setError(err.message || 'Failed to create series');
       setSaving(false);
+      setProgress(0);
     }
   };
 
@@ -98,6 +107,22 @@ export default function NewSeriesPage() {
             value={form.genres}
             onChange={(e) => set('genres', e.target.value)}
           />
+
+          {/* Upload progress */}
+          {saving && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs text-neutral-400">
+                <span>{progressLabel || 'Uploading…'}</span>
+                <span>{progress}%</span>
+              </div>
+              <div className="w-full bg-neutral-800 rounded-full h-2 overflow-hidden">
+                <div
+                  className="bg-indigo-500 h-full rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
+          )}
 
           {error && <p className="text-sm text-red-400">{error}</p>}
 

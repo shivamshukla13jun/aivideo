@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState, use } from 'react';
 import Navbar from '@/components/Navbar';
 import Link from 'next/link';
 import { BookOpen, Film, Library, RefreshCw, Loader2, Upload, FileArchive, Trash2, AlertTriangle } from 'lucide-react';
+import { uploadWithProgress, formatBytes } from '@/lib/uploadWithProgress';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +25,8 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
   const [chapterTitle, setChapterTitle] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadProgressLabel, setUploadProgressLabel] = useState('');
 
   // Delete state
   const [deletingChapterId, setDeletingChapterId] = useState<string | null>(null);
@@ -92,15 +95,20 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
     if (!chapterNumber.trim()) return setUploadError('Chapter number is required');
     setUploading(true);
     setUploadError('');
+    setUploadProgress(0);
+    setUploadProgressLabel('');
     try {
       const fd = new FormData();
       fd.append('cbz', cbzFile);
       fd.append('seriesId', seriesId);
       fd.append('chapterNumber', chapterNumber);
       if (chapterTitle.trim()) fd.append('title', chapterTitle.trim());
-      const res = await fetch('/api/chapters', { method: 'POST', body: fd });
-      const data = await res.json();
+      const data = await uploadWithProgress('/api/chapters', fd, (pct, loaded, total) => {
+        setUploadProgress(pct);
+        setUploadProgressLabel(`${formatBytes(loaded)} / ${formatBytes(total)}`);
+      });
       if (!data.success) throw new Error(data.error || 'Upload failed');
+      setUploadProgress(100);
       setCbzFile(null);
       setChapterNumber('');
       setChapterTitle('');
@@ -110,6 +118,8 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
       setUploadError(err.message || 'Upload failed');
     } finally {
       setUploading(false);
+      setUploadProgress(0);
+      setUploadProgressLabel('');
     }
   };
 
@@ -309,6 +319,21 @@ export default function SeriesDetailPage({ params }: { params: Promise<{ id: str
               <span>{uploading ? 'Uploading…' : 'Upload'}</span>
             </button>
           </div>
+          {/* Upload progress */}
+          {uploading && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs text-neutral-400">
+                <span>{uploadProgressLabel || 'Preparing…'}</span>
+                <span>{uploadProgress}%</span>
+              </div>
+              <div className="w-full bg-neutral-800 rounded-full h-2 overflow-hidden">
+                <div
+                  className="bg-indigo-500 h-full rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+            </div>
+          )}
           {uploadError && <p className="text-xs text-red-400">{uploadError}</p>}
           <p className="text-[11px] text-neutral-500">A .cbz is a ZIP archive of the chapter&apos;s page images. Pages are extracted and stored in MinIO.</p>
         </form>
