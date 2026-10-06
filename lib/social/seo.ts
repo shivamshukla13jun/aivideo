@@ -75,25 +75,25 @@ export interface PostingSchedule {
 
 // --- Proven viral title patterns for webtoon/manga content ---
 const VIRAL_TITLE_PATTERNS = [
-  '{series} Ch.{chapter} — This Changes EVERYTHING',
-  '{series} Chapter {chapter}: {title} | The MOST Intense Scene Yet',
-  'I Can\'t Believe What Happened in {series} Ch.{chapter}!',
-  '{series} Ch.{chapter} Recap — {title} (MUST WATCH)',
-  'The Truth About {series} Finally Revealed | Ch.{chapter}',
-  '{series}: {title} — Why Everyone is Talking About This',
-  '{series} Chapter {chapter} Left Me SPEECHLESS',
-  'This Scene from {series} Ch.{chapter} Broke the Internet',
-  '{series} Ch.{chapter} | The Moment That Changed Everything',
-  'Watch {series} Ch.{chapter} Before It\'s Too Late',
+  '{series} Ch.{chapter} — This Changes EVERYTHING | Webtoon',
+  '{series} Chapter {chapter}: {title} | MOST Intense Manhwa Scene Yet',
+  'I Can\'t Believe What Happened in {series} Ch.{chapter}! (Webtoon)',
+  '{series} Ch.{chapter} Recap — {title} | Manhwa MUST WATCH',
+  'The Truth About {series} Finally Revealed | Ch.{chapter} Webtoon',
+  '{series}: {title} — The Manhwa Everyone is Talking About',
+  '{series} Chapter {chapter} Left Me SPEECHLESS | Webtoon Recap',
+  'This {series} Scene Broke the Internet | Ch.{chapter} Manhwa',
+  '{series} Ch.{chapter} | The Moment That Changed Everything | Webtoon',
+  'Watch {series} Ch.{chapter} Before It\'s Too Late | Manhwa Recap',
 ];
 
 const SHORTS_TITLE_PATTERNS = [
-  '{series} in 60 SECONDS! #shorts',
-  'When {series} hits different... Ch.{chapter} #shorts',
-  '{series} Ch.{chapter}: The Scene That Went VIRAL #shorts',
-  'POV: You just read {series} Ch.{chapter} #shorts',
-  'This {series} scene is INSANE #shorts #webtoon',
-  '{series} recap you NEED to see #shorts',
+  '{series} in 60 SECONDS! #shorts #webtoon',
+  'When {series} hits different... Ch.{chapter} #manhwa #shorts',
+  '{series} Ch.{chapter}: The Scene That Went VIRAL #webtoon #shorts',
+  'POV: You just read {series} Ch.{chapter} #manhwa #shorts',
+  'This {series} webtoon scene is INSANE #shorts #manhwa',
+  '{series} manhwa recap you NEED to see #shorts #webtoon',
 ];
 
 // Trending hashtags for webtoon/manga content (regularly updated)
@@ -112,6 +112,45 @@ const CATEGORY_KEYWORDS = [
   'webtoon animation', 'animated webtoon', 'webtoon edit',
   'webtoon chapter', 'new chapter', 'latest chapter',
 ];
+
+// Anchors that MUST survive — this app only publishes webtoon/manhwa chapter videos.
+const WEBTOON_ANCHOR_TAGS = ['webtoon', 'manhwa', 'manga', 'webtoon recap', 'manhwa recap', 'webtoon chapter'];
+const WEBTOON_ANCHOR_HASHTAGS = ['#webtoon', '#manhwa', '#manga'];
+
+/** Force-include webtoon anchors + series/chapter tags, deduped, anchors first. */
+function withAnchorTags(tags: string[], seriesTitle: string, chapterNumber: number): string[] {
+  const chapterAnchors = [
+    seriesTitle,
+    `${seriesTitle} chapter ${chapterNumber}`,
+    `${seriesTitle} webtoon`,
+    `${seriesTitle} manhwa`,
+    ...WEBTOON_ANCHOR_TAGS,
+  ];
+  const seen = new Set<string>();
+  return [...chapterAnchors, ...tags]
+    .filter((t) => {
+      const k = t.trim().toLowerCase();
+      if (!k || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .slice(0, 50);
+}
+
+/** Force-include webtoon anchor hashtags + series hashtag. */
+function withAnchorHashtags(hashtags: string[], seriesTitle: string): string[] {
+  const seriesTag = `#${seriesTitle.replace(/\s+/g, '')}`;
+  const normalized = hashtags.map((h) => (h.startsWith('#') ? h : `#${h}`));
+  const seen = new Set<string>();
+  return [seriesTag, ...WEBTOON_ANCHOR_HASHTAGS, ...normalized]
+    .filter((h) => {
+      const k = h.trim().toLowerCase();
+      if (!k || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .slice(0, 20);
+}
 
 function extractKeywords(text: string): string[] {
   const words = text.toLowerCase().split(/\W+/).filter(w => w.length > 3);
@@ -199,7 +238,7 @@ function buildPlatformSeo(
   ].join('\n');
 
   // Reddit favors descriptive, non-clickbait titles; no hashtags
-  const redditTitle = `${seriesTitle} Chapter ${chapterNumber}: ${chapterTitle} — Full animated recap`.slice(0, 300);
+  const redditTitle = `${seriesTitle} Chapter ${chapterNumber}: ${chapterTitle} — Webtoon animated recap`.slice(0, 300);
 
   const twitterText = [
     primary.title,
@@ -356,26 +395,31 @@ export function generateAdvancedSeo(
   const titleVariants = generateTitleVariants(seriesTitle, chapterNumber, chapterTitle, isShort);
   const primaryTitle = titleVariants[0];
 
-  // Build tags
-  const tags = [
+  // Build tags — webtoon anchors always first, never dropped
+  const tags = withAnchorTags(
+    [
+      chapterTitle,
+      ...CATEGORY_KEYWORDS.slice(0, 12),
+      ...keywords.slice(0, 8),
+      ...extra,
+      tone,
+      `${tone} webtoon`,
+      `${seriesTitle} chapter`,
+    ],
     seriesTitle,
-    `${seriesTitle} chapter ${chapterNumber}`,
-    chapterTitle,
-    ...CATEGORY_KEYWORDS.slice(0, 12),
-    ...keywords.slice(0, 8),
-    ...extra,
-    tone,
-    `${tone} webtoon`,
-  ].filter(Boolean).slice(0, 50);
+    chapterNumber
+  );
 
-  // Build hashtags
-  const hashtags = [
-    `#${seriesTitle.replace(/\s+/g, '')}`,
-    `#${seriesTitle.replace(/\s+/g, '')}Chapter${chapterNumber}`,
-    ...TRENDING_HASHTAGS.base,
-    ...TRENDING_HASHTAGS.engagement.slice(0, 3),
-    ...TRENDING_HASHTAGS.niche.slice(0, 3),
-  ].slice(0, 15);
+  // Build hashtags — anchors always present
+  const hashtags = withAnchorHashtags(
+    [
+      `#${seriesTitle.replace(/\s+/g, '')}Chapter${chapterNumber}`,
+      ...TRENDING_HASHTAGS.base,
+      ...TRENDING_HASHTAGS.engagement.slice(0, 3),
+      ...TRENDING_HASHTAGS.niche.slice(0, 3),
+    ],
+    seriesTitle
+  );
 
   const description = buildOptimizedDescription(seriesTitle, chapterNumber, chapterTitle, narrations, tone, keywords);
 
@@ -434,7 +478,15 @@ export async function enhanceSeoWithAI(
 
     const scriptSample = narrations.join('\n').slice(0, 3000);
 
-    const prompt = `You are a viral content strategist specializing in webtoon/manga YouTube channels. Analyze this content and optimize for MAXIMUM virality.
+    const prompt = `You are a viral content strategist for a WEBTOON/MANHWA/MANGA chapter recap channel. This video is ALWAYS an animated webtoon chapter — never generic content.
+
+HARD RULES (do not violate):
+- The video is a webtoon/manhwa chapter recap. Every title MUST contain the series name "${seriesTitle}" AND the chapter number (formats like "Ch.${chapterNumber}", "Chapter ${chapterNumber}", or "Ep.${chapterNumber}").
+- Every title, description, caption and tag set MUST be anchored in webtoon/manhwa terminology (webtoon, manhwa, manga, manhwa recap, webtoon recap). Do NOT produce generic anime, movie, or TV-show SEO.
+- description must open with "${seriesTitle} Chapter ${chapterNumber}" in the first 150 chars.
+- Hashtags MUST include #${seriesTitle.replace(/\s+/g, '')}, #webtoon, #manhwa, #manga.
+- Tags MUST include "${seriesTitle}", "${seriesTitle} chapter ${chapterNumber}", "webtoon", "manhwa", "manga", "webtoon recap", "manhwa recap".
+- Reddit title: descriptive and honest (Redditors reject clickbait). Format "${seriesTitle} Chapter ${chapterNumber}: ... — webtoon recap".
 
 Series: ${seriesTitle}
 Chapter: ${chapterNumber} - ${chapterTitle}
@@ -449,18 +501,18 @@ Current tags: ${baseSeo.primary.tags.slice(0, 15).join(', ')}
 
 Generate STRICTLY as JSON (no markdown fences):
 {
-  "title": "YouTube title optimized for CTR (max 80 chars, use curiosity gap, power words)",
-  "titleVariants": ["5 A/B test title alternatives using different viral patterns"],
-  "description": "YouTube description: first 150 chars = hook with main keywords. Then engaging summary, timestamps placeholder, CTA, hashtags at end.",
-  "tags": ["25 SEO tags: mix broad discovery terms + specific series terms + trending terms"],
-  "hashtags": ["10 hashtags: trending + niche + engagement"],
-  "shortsTitles": ["3 YouTube Shorts title variants with #shorts"],
+  "title": "webtoon chapter title max 80 chars: '${seriesTitle}' + 'Ch.${chapterNumber}' + curiosity gap + power word",
+  "titleVariants": ["5 A/B variants — all must contain '${seriesTitle}' and the chapter number plus webtoon/manhwa keyword"],
+  "description": "starts with '${seriesTitle} Chapter ${chapterNumber}' hook, engaging summary, subscribe CTA, webtoon hashtags at end",
+  "tags": ["25 tags: series-specific + webtoon/manhwa/manga anchors + trending webtoon terms"],
+  "hashtags": ["10 hashtags incl #${seriesTitle.replace(/\s+/g, '')} #webtoon #manhwa #manga"],
+  "shortsTitles": ["3 YouTube Shorts variants with '${seriesTitle}', chapter number, and #shorts #webtoon"],
   "platformCaptions": {
-    "instagram": "Instagram Reels caption (engaging, emoji-friendly, 20 hashtags at end)",
-    "reddit": "Reddit post title (descriptive, NOT clickbait — Redditors dislike it; max 300 chars, no hashtags)",
-    "twitter": "Twitter/X post text (max 280 chars with 3-4 hashtags)"
+    "instagram": "Instagram Reels caption for the webtoon chapter (engaging, emoji-friendly, ~20 hashtags incl #webtoon #manhwa at end)",
+    "reddit": "Reddit post title: '${seriesTitle} Chapter ${chapterNumber}: ...' honest descriptive webtoon recap, max 300 chars, no hashtags",
+    "twitter": "X post text (max 280 chars) with '${seriesTitle}', chapter number, 3-4 hashtags incl #webtoon"
   },
-  "tips": ["3 specific actionable tips to make THIS particular video go viral"]
+  "tips": ["3 specific actionable tips to make THIS webtoon chapter video go viral"]
 }`;
 
     const result = await ai.models.generateContent({
@@ -472,18 +524,49 @@ Generate STRICTLY as JSON (no markdown fences):
     const parsed = JSON.parse(jsonStr);
 
     // Merge AI results with base SEO
-    if (parsed.title) baseSeo.primary.title = String(parsed.title).slice(0, 100);
-    if (parsed.titleVariants) baseSeo.titleVariants = [...parsed.titleVariants.map(String), ...baseSeo.titleVariants].slice(0, 10);
-    if (parsed.description) baseSeo.primary.description = String(parsed.description).slice(0, 5000);
-    if (parsed.tags) baseSeo.primary.tags = [...parsed.tags.map(String), ...baseSeo.primary.tags].slice(0, 50);
-    if (parsed.hashtags) baseSeo.primary.hashtags = [...parsed.hashtags.map(String), ...baseSeo.primary.hashtags].slice(0, 15);
+    if (parsed.title) {
+      let t = String(parsed.title).slice(0, 100);
+      // Webtoon chapter identity must survive: require series name + chapter number
+      const hasSeries = t.toLowerCase().includes(seriesTitle.toLowerCase());
+      const hasChapter = /(ch\.?|chapter|ep\.?)\s*\d+/i.test(t);
+      if (!hasSeries || !hasChapter) {
+        t = `${seriesTitle} Ch.${chapterNumber} — ${t}`.slice(0, 100);
+      }
+      baseSeo.primary.title = t;
+    }
+    if (parsed.titleVariants) {
+      // Keep only variants that carry the series name or a chapter marker
+      const valid = parsed.titleVariants
+        .map(String)
+        .filter((v: string) =>
+          v.toLowerCase().includes(seriesTitle.toLowerCase()) || /(ch\.?|chapter|ep\.?)\s*\d+/i.test(v)
+        );
+      baseSeo.titleVariants = [...valid, ...baseSeo.titleVariants].slice(0, 10);
+    }
+    if (parsed.description) {
+      let d = String(parsed.description).slice(0, 5000);
+      // First 150 chars must carry the webtoon chapter identity for search
+      if (!d.slice(0, 150).toLowerCase().includes(seriesTitle.toLowerCase())) {
+        d = `${seriesTitle} Chapter ${chapterNumber} webtoon recap — ${d}`;
+      }
+      baseSeo.primary.description = d;
+    }
+    if (parsed.tags) baseSeo.primary.tags = withAnchorTags(parsed.tags.map(String), seriesTitle, chapterNumber);
+    if (parsed.hashtags) baseSeo.primary.hashtags = withAnchorHashtags(parsed.hashtags.map(String), seriesTitle);
     if (parsed.platformCaptions?.instagram) baseSeo.platformSeo.instagram.caption = String(parsed.platformCaptions.instagram).slice(0, 2200);
     if (parsed.platformCaptions?.reddit) {
-      const rt = String(parsed.platformCaptions.reddit).slice(0, 300);
+      let rt = String(parsed.platformCaptions.reddit).slice(0, 300);
+      if (!rt.toLowerCase().includes(seriesTitle.toLowerCase())) {
+        rt = `${seriesTitle} Chapter ${chapterNumber}: ${rt}`.slice(0, 300);
+      }
       baseSeo.platformSeo.reddit.title = rt;
       baseSeo.platformSeo.reddit.caption = rt;
     }
-    if (parsed.platformCaptions?.twitter) baseSeo.platformSeo.twitter.caption = String(parsed.platformCaptions.twitter).slice(0, 280);
+    if (parsed.platformCaptions?.twitter) {
+      let tw = String(parsed.platformCaptions.twitter).slice(0, 280);
+      if (!tw.toLowerCase().includes('#webtoon')) tw = `${tw.trim()} #webtoon`.slice(0, 280);
+      baseSeo.platformSeo.twitter.caption = tw;
+    }
     if (parsed.tips) baseSeo.tips = [...parsed.tips.map(String), ...baseSeo.tips];
 
     // Recalculate virality score with improved content
