@@ -3,20 +3,23 @@ import { connectDB } from '@/lib/mongodb';
 import { OcrJob } from '@/models/OcrJob';
 import { Chapter } from '@/models/Chapter';
 import { Series } from '@/models/Series';
+import { Page } from '@/models/Page';
 import { publishOcrJob } from '@/lib/queue';
 import { runOcrJob } from '@/lib/ocrJob';
-import { isProviderAvailable } from '@/lib/ocr';
-import { Page } from '@/models/Page';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * POST /api/chapters/[id]/translate-text — translate extracted English text
+ * (Page.extractedText) into Hindi (Page.extractedTextHi) as a background job.
+ * Body: { overwrite?: boolean } — overwrite also re-translates pages that already
+ * have Hindi text; default only fills pages where it's still pending.
+ */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id: chapterId } = await params;
 
     const body = await req.json().catch(() => ({}));
-    const targetOrders: number[] | null = Array.isArray(body.orders) ? body.orders : null;
-    const provider = 'paddle'; // only provider — the self-hosted PaddleOCR service
 
     await connectDB();
 
@@ -36,16 +39,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // non-fatal — job still works without display metadata
     }
 
+    // Nothing to translate until extraction has produced English text
+    const translatable = await Page.countDocuments({
+      chapterId,
+      status: { $ne: 'deleted' },
+      extractedText: { $regex: /\S/ },
+    });
+    if (translatable === 0) {
+      return NextResponse.json(
+        { success: false, error: 'No extracted text yet — run Extract Text first' },
+        { status: 400 }
+      );
+    }
+
     // Count what this run will process so queued jobs show "0/N" immediately.
-    // Pending = no ocrProvider yet; overwrite runs on every page.
+    // Pending = has English text, no Hindi yet; overwrite re-translates all.
     const overwrite = Boolean(body.overwrite);
-    const totalPages = targetOrders
-      ? targetOrders.length
-      : await Page.countDocuments({
-          chapterId,
-          status: { $ne: 'deleted' },
-          ...(overwrite ? {} : { ocrProvider: { $in: [null, ''] } }),
-        });
+    const totalPages = await Page.countDocuments({
+      chapterId,
+      status: { $ne: 'deleted' },
+      extractedText: { $regex: /\S/ },
+      ...(overwrite ? {} : { extractedTextHi: { $in: [null, ''] } }),
+    });
 
     const jobId = `ocr_${chapterId}_${Date.now()}`;
     await OcrJob.create({
@@ -54,8 +69,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       seriesId,
       seriesTitle,
       chapterName,
-      provider,
-      stage: 'extract',
+      provider: 'ai',
+      stage: 'translate',
       overwriteScenes: overwrite,
       status: 'queued',
       totalPages,
@@ -66,14 +81,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const queued = await publishOcrJob(jobId);
 
     if (!queued) {
-      // RabbitMQ unavailable — fall back to synchronous extraction so OCR still works
+      // RabbitMQ unavailable — fall back to synchronous translation
       const result = await runOcrJob(jobId);
       return NextResponse.json({ success: true, queued: false, jobId, ...result });
     }
 
     return NextResponse.json({ success: true, queued: true, jobId }, { status: 202 });
   } catch (error: any) {
-    console.error('Error starting OCR extraction job:', error);
+    console.error('Error starting translation job:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

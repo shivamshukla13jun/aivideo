@@ -1,113 +1,90 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
+import { OcrJob } from '@/models/OcrJob';
+import { Chapter } from '@/models/Chapter';
+import { Series } from '@/models/Series';
 import { Page } from '@/models/Page';
-import { getFileBuffer, uploadFile, fileUrl } from '@/lib/minio';
+import { publishOcrJob } from '@/lib/queue';
+import { runOcrJob } from '@/lib/ocrJob';
 
 export const dynamic = 'force-dynamic';
 
-const paddleUrl = () =>
-  (process.env.PADDLEOCR_URL || 'http://localhost:5004').replace(/\/+$/, '');
-
 /**
- * POST /api/chapters/[id]/preprocess
- * Clean all chapter page images: denoise, enhance contrast, remove watermarks,
- * sharpen text. Saves processed images back to MinIO and updates Page docs.
- * Must run BEFORE OCR for best results.
+ * POST /api/chapters/[id]/preprocess — clean all chapter page images
+ * (denoise, enhance contrast, remove watermarks, sharpen text) as a
+ * background job via RabbitMQ. The processed image REPLACES the original in
+ * MinIO — the Page (and scenes built from it) are repointed at the cleaned
+ * file and the old object is deleted. Must run BEFORE OCR for best results.
+ * Body: { overwrite?: boolean } — reprocess pages even if already cleaned.
  */
-export async function POST(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id: chapterId } = await params;
+    const body = await req.json().catch(() => ({}));
+
     await connectDB();
 
-    const pages = await Page.find({
-      chapterId,
-      status: { $ne: 'deleted' },
-    }).sort({ order: 1 });
-
-    if (pages.length === 0) {
+    const pageCount = await Page.countDocuments({ chapterId, status: { $ne: 'deleted' } });
+    if (pageCount === 0) {
       return NextResponse.json(
         { success: false, error: 'No pages found — upload a CBZ first' },
         { status: 404 }
       );
     }
 
-    let done = 0;
-    const failed: number[] = [];
-
-    for (const page of pages) {
-      const order = page.order ?? done + 1;
-      try {
-        // Read original image from MinIO
-        const objectKey = page.publicId;
-        if (!objectKey) {
-          failed.push(order);
-          continue;
-        }
-        const buf = await getFileBuffer(objectKey);
-
-        // Send to OCR server's /preprocess endpoint
-        const fd = new FormData();
-        fd.append(
-          'file',
-          new Blob([new Uint8Array(buf)], { type: 'application/octet-stream' }),
-          'page.png'
-        );
-        const res = await fetch(`${paddleUrl()}/preprocess`, {
-          method: 'POST',
-          body: fd,
-          signal: AbortSignal.timeout(120_000),
-        });
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          console.warn(
-            `[Preprocess] Page ${order} failed:`,
-            err?.error || res.status
-          );
-          failed.push(order);
-          continue;
-        }
-
-        // Save processed image to MinIO under a new key
-        const processedBuf = Buffer.from(await res.arrayBuffer());
-        const editedKey = objectKey.replace(
-          /(\.[^.]+)$/,
-          '_processed$1'
-        );
-        const stored = await uploadFile(processedBuf, editedKey);
-
-        // Update Page document with the processed image URL
-        await Page.findByIdAndUpdate(page._id, {
-          $set: {
-            editedUrl: stored.url,
-            processedKey: editedKey,
-          },
-        });
-
-        done++;
-      } catch (err: any) {
-        console.warn(
-          `[Preprocess] Page ${order} error:`,
-          err?.message || err
-        );
-        failed.push(order);
+    let seriesId = '';
+    let seriesTitle = '';
+    let chapterName = `Chapter ${chapterId}`;
+    try {
+      const chap = await Chapter.findById(chapterId);
+      if (chap) {
+        chapterName = chap.title || `Chapter ${chap.chapterNumber}`;
+        seriesId = String(chap.seriesId || '');
+        const series = await Series.findById(chap.seriesId);
+        seriesTitle = series?.title || '';
       }
+    } catch {
+      // non-fatal — job still works without display metadata
     }
 
-    return NextResponse.json({
-      success: true,
-      total: pages.length,
-      done,
-      failed,
+    // Count what this run will process so queued jobs show "0/N" immediately.
+    // Pending = not yet processed; overwrite re-cleans every page.
+    const overwrite = Boolean(body.overwrite);
+    const totalPages = overwrite
+      ? pageCount
+      : await Page.countDocuments({
+          chapterId,
+          status: { $ne: 'deleted' },
+          processedKey: { $in: [null, ''] },
+        });
+
+    const jobId = `ocr_${chapterId}_${Date.now()}`;
+    await OcrJob.create({
+      jobId,
+      chapterId,
+      seriesId,
+      seriesTitle,
+      chapterName,
+      provider: 'paddle',
+      stage: 'preprocess',
+      overwriteScenes: overwrite,
+      status: 'queued',
+      totalPages,
+      donePages: 0,
+      failedOrders: [],
     });
+
+    const queued = await publishOcrJob(jobId);
+
+    if (!queued) {
+      // RabbitMQ unavailable — fall back to synchronous processing
+      const result = await runOcrJob(jobId);
+      return NextResponse.json({ success: true, queued: false, jobId, ...result });
+    }
+
+    return NextResponse.json({ success: true, queued: true, jobId }, { status: 202 });
   } catch (error: any) {
-    console.error('Preprocess error:', error);
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
+    console.error('Error starting preprocess job:', error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

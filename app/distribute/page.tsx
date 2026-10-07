@@ -456,7 +456,7 @@ function DistributeDashboard() {
             </div>
           </div>
           <p className="text-[10px] text-neutral-600 mt-3">
-            AI SEO requires <code className="bg-neutral-800 px-1 rounded">GEMINI_API_KEY</code>. Without it, the algorithm-based SEO engine will be used.
+            AI SEO requires a Gemini API key — add one at <a href="/settings" className="text-indigo-400 hover:underline">Settings</a>. Without it, the algorithm-based SEO engine will be used.
           </p>
         </section>
       </main>

@@ -38,6 +38,7 @@ import {
   Loader2,
   Volume2,
   Mic,
+  Check,
   CheckSquare,
   Square,
   Layers,
@@ -107,6 +108,8 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
 
   // OCR Extraction States
   const [extractingOcr, setExtractingOcr] = useState(false);
+  const [translatingAll, setTranslatingAll] = useState(false);
+  const [ocrTab, setOcrTab] = useState<'extract' | 'translate'>('extract');
   const [ocrSuccessMessage, setOcrSuccessMessage] = useState('');
   const [ocrProviders, setOcrProviders] = useState<{ id: string; label: string; available: boolean; note: string }[]>([
     { id: 'paddle', label: 'PaddleOCR (self-hosted)', available: true, note: '' },
@@ -331,8 +334,8 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   };
 
   /** Detect blank gaps on every page and cut them, then re-fit camera + duration. */
-  const autoCutBlankGapsAll = async () => {
-    const targets = scenes.filter((s) => s.image && s.imageWidth && s.imageHeight);
+  const autoCutBlankGapsAll = async (list?: any[], silent?: boolean) => {
+    const targets = (list || scenes).filter((s) => s.image && s.imageWidth && s.imageHeight);
     if (targets.length === 0 || autoCutProgress) return;
     setAutoCutProgress({ done: 0, total: targets.length });
     let found = 0;
@@ -355,7 +358,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
       setAutoCutProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
     }
     setAutoCutProgress(null);
-    if (found === 0) alert('No large blank gaps found on any page.');
+    if (found === 0 && !silent) alert('No large blank gaps found on any page.');
   };
 
   /** Apply a single field (duration / transition / effects / visualEffect) to every scene. */
@@ -383,7 +386,9 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
 
     const sRes = await fetch(`/api/scenes?chapterId=${chapterId}`);
     const sData = await sRes.json();
-    if (sData.success) setScenes(sData.data.map(cleanScene));
+    const freshScenes = sData.success ? sData.data.map(cleanScene) : [];
+    if (sData.success) setScenes(freshScenes);
+    return { freshPages: pData.success ? pData.data : [], freshScenes };
   };
 
   const changeOcrProvider = (p: string) => {
@@ -411,12 +416,18 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
     }
   };
 
-  // Preprocess / clean all chapter images before OCR
+  // Preprocess / clean all chapter images before OCR — queued as a background
+  // job; the 5s poller below drives progress and refreshes data when it ends.
   const handlePreprocessImages = async () => {
     setPreprocessingImages(true);
-    setPreprocessMessage('Processing images...');
+    setPreprocessMessage('Queuing image processing…');
     try {
-      const res = await fetch(`/api/chapters/${chapterId}/preprocess`, { method: 'POST' });
+      const res = await fetch(`/api/chapters/${chapterId}/preprocess`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // A deliberate click re-cleans every page (failed pages retry via the job).
+        body: JSON.stringify({ overwrite: true }),
+      });
       const data = await res.json();
       if (!data.success) {
         alert(data.error || 'Image processing failed');
@@ -424,80 +435,147 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
         setPreprocessMessage('');
         return;
       }
+      if (data.queued) return; // job poller takes over
+
+      // Synchronous fallback (RabbitMQ unavailable)
       setPreprocessMessage(
-        `Processed ${data.done}/${data.total} images${data.failed?.length ? ` (${data.failed.length} failed)` : ''}`
+        `Processed ${data.done ?? 0} images${data.failed ? ` (${data.failed} failed)` : ''}`
       );
-      // Refresh pages to show processed images
-      const pRes = await fetch(`/api/chapters/${chapterId}/pages`);
-      const pData = await pRes.json();
-      if (pData.success) setPages(pData.data);
-      setTimeout(() => setPreprocessMessage(''), 4500);
+      const { freshScenes } = await refreshOcrResults();
+      await autoCutBlankGapsAll(freshScenes, true);
+      setTimeout(() => setPreprocessMessage(''), 6000);
+      setPreprocessingImages(false);
     } catch (err) {
       console.error(err);
       alert('Image processing request failed');
-    } finally {
       setPreprocessingImages(false);
+      setPreprocessMessage('');
     }
   };
 
-  // OCR Text Extraction for All Pages — queued via RabbitMQ, polled until done.
-  // overwrite = re-extract: replace existing scene narrations with the new result.
-  const handleExtractAllOcr = async (overwrite: boolean) => {
-    setExtractingOcr(true);
+  // Text pipeline: 'extract' = OCR→EN, 'translate' = EN→HI. Both run as queued
+  // background jobs; the 5s poller reports progress and handles completion.
+  // Pending pages are skipped server-side — a re-run continues where it left off.
+  const runOcrStage = async (stage: 'extract' | 'translate', overwrite: boolean) => {
+    const setBusy = stage === 'extract' ? setExtractingOcr : setTranslatingAll;
+    setBusy(true);
     setOcrSuccessMessage('');
     try {
-      const res = await fetch(`/api/chapters/${chapterId}/extract-ocr`, {
+      const res = await fetch(`/api/chapters/${chapterId}/${stage === 'extract' ? 'extract-ocr' : 'translate-text'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider: ocrProvider, overwrite }),
       });
       const data = await res.json();
       if (!data.success) {
-        alert(data.error || 'OCR extraction failed');
-        setExtractingOcr(false);
+        alert(data.error || (stage === 'extract' ? 'OCR extraction failed' : 'Translation failed'));
+        setBusy(false);
         return;
       }
 
-      if (data.queued && data.jobId) {
-        // Background job — poll its status until finished
-        const jobId = data.jobId;
-        const poll = async (): Promise<void> => {
-          try {
-            const jRes = await fetch(`/api/ocr-jobs?chapterId=${chapterId}`);
-            const jData = await jRes.json();
-            const job = jData.success ? jData.data.find((j: any) => j.jobId === jobId) : null;
-            if (job) {
-              setOcrSuccessMessage(`OCR running: ${job.donePages}/${job.totalPages || '?'} pages…`);
-            }
-            if (job && (job.status === 'done' || job.status === 'failed')) {
-              await refreshOcrResults();
-              setOcrSuccessMessage(
-                job.status === 'done'
-                  ? `OCR extracted text for ${job.donePages} pages!`
-                  : `OCR failed for ${job.failedOrders?.length || 0} page(s) — retry from dashboard.`
-              );
-              setTimeout(() => setOcrSuccessMessage(''), 4500);
-              setExtractingOcr(false);
-              return;
-            }
-          } catch {}
-          setTimeout(poll, 2000);
-        };
-        setTimeout(poll, 1500);
-        return; // keep spinner until job finishes
-      }
+      if (data.queued) return; // job poller takes over
 
       // Synchronous fallback (RabbitMQ unavailable)
       await refreshOcrResults();
-      setOcrSuccessMessage(`OCR extracted text for ${data.done ?? data.data?.length ?? 0} pages!`);
-      setTimeout(() => setOcrSuccessMessage(''), 4500);
-      setExtractingOcr(false);
+      setOcrSuccessMessage(
+        stage === 'extract'
+          ? `OCR extracted text for ${data.done ?? 0} pages!`
+          : `Translated ${data.done ?? 0} pages to Hindi!`
+      );
+      setTimeout(() => setOcrSuccessMessage(''), 6000);
+      setBusy(false);
     } catch (err) {
       console.error(err);
-      alert('OCR extraction request failed');
-      setExtractingOcr(false);
+      alert(stage === 'extract' ? 'OCR extraction request failed' : 'Translation request failed');
+      setBusy(false);
     }
   };
+
+  // Every 5s: check this chapter's pipeline jobs (preprocess / extract /
+  // translate). Drives the busy spinners + progress line, refreshes pages and
+  // scenes when a stage finishes, and reattaches to in-flight work after a
+  // reload since job state lives in MongoDB.
+  const jobStatesRef = useRef<Map<string, string> | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const stageLabel = (st: string) =>
+      st === 'extract' ? 'OCR' : st === 'translate' ? 'Translate' : 'Processing images';
+
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/ocr-jobs?chapterId=${chapterId}`);
+        const data = await res.json();
+        if (!alive || !data.success) return;
+
+        const jobs: any[] = data.data || [];
+        const prev = jobStatesRef.current;
+        const next = new Map<string, string>();
+        const active: Record<string, any> = {};
+        const completions: any[] = [];
+
+        for (const j of jobs) {
+          next.set(j.jobId, j.status);
+          const st = j.stage || 'extract';
+          if (j.status === 'queued' || j.status === 'running') {
+            if (!active[st]) active[st] = j;
+          } else if (prev && prev.has(j.jobId) && prev.get(j.jobId) !== j.status) {
+            completions.push(j); // status changed to done/failed since last tick
+          }
+        }
+        jobStatesRef.current = next;
+
+        setExtractingOcr(!!active.extract);
+        setTranslatingAll(!!active.translate);
+        setPreprocessingImages(!!active.preprocess);
+        if (active.extract) setOcrTab('extract');
+        else if (active.translate) setOcrTab('translate');
+
+        if (Object.keys(active).length) {
+          const line = Object.entries(active)
+            .map(([st, j]) =>
+              j.status === 'queued'
+                ? `${stageLabel(st)} queued (${j.totalPages ?? '?'} pages)…`
+                : `${stageLabel(st)}: ${j.donePages}/${j.totalPages ?? '?'} pages…`
+            )
+            .join('  •  ');
+          setOcrSuccessMessage(line);
+          if (active.preprocess) setPreprocessMessage(line);
+        }
+
+        for (const j of completions) {
+          const st = j.stage || 'extract';
+          const { freshScenes } = await refreshOcrResults();
+          if (st === 'preprocess') {
+            setPreprocessMessage(
+              j.status === 'done'
+                ? `Processed ${j.donePages}/${j.totalPages} images${j.failedOrders?.length ? ` (${j.failedOrders.length} failed)` : ''}`
+                : `Image processing failed for ${j.failedOrders?.length || 0} page(s)`
+            );
+            await autoCutBlankGapsAll(freshScenes, true);
+            setTimeout(() => setPreprocessMessage(''), 6000);
+          } else {
+            setOcrSuccessMessage(
+              j.status === 'done'
+                ? st === 'extract'
+                  ? `OCR extracted text for ${j.donePages} pages!`
+                  : `Translated ${j.donePages} pages to Hindi!`
+                : `${stageLabel(st)} failed for ${j.failedOrders?.length || 0} page(s) — retry from dashboard.`
+            );
+            setTimeout(() => setOcrSuccessMessage(''), 6000);
+          }
+        }
+      } catch {}
+    };
+
+    const kick = setTimeout(tick, 0);
+    const iv = setInterval(tick, 5000);
+    return () => {
+      alive = false;
+      clearTimeout(kick);
+      clearInterval(iv);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chapterId]);
 
   // Add pages as full webtoon scenes: read-mode camera scrolling top → bottom, OCR text as narration
   const addPagesAsScenes = async (pageList: any[]) => {
@@ -545,6 +623,8 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
       setScenes((prev) => [...prev, ...created]);
       if (created.length > 0 && !activeSceneId) setActiveSceneId(created[0]._id);
       setSelectedPageIds([]);
+      // Auto-cut blank gaps on the pages just added
+      await autoCutBlankGapsAll(created, true);
     } catch (err) {
       console.error(err);
       alert('Error adding pages to the video');
@@ -801,6 +881,13 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
         )
       : null;
   const selectedProviderInfo = ocrProviders.find((p) => p.id === ocrProvider);
+  // Pipeline progress — derived from page fields, so counts are correct after a reload.
+  // A page counts as extracted once OCR ran on it (ocrProvider set), even if it had no text.
+  const pendingExtract = pages.filter((p) => !p.ocrProvider).length;
+  const translatableCount = pages.filter((p) => (p.extractedText || '').trim()).length;
+  const pendingTranslate = pages.filter(
+    (p) => (p.extractedText || '').trim() && !(p.extractedTextHi || '').trim()
+  ).length;
   const activeCleanupCount = (activeScene?.cuts?.length || 0) + (activeScene?.hideBoxes?.length || 0);
   const cameraFxValue = ['none', 'shake', 'pulse', 'float', 'heartbeat', 'zoom-pulse', 'breathe'].includes(activeScene?.effects) ? activeScene.effects : 'none';
 
@@ -1029,25 +1116,6 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
             </div>
 
             <div className="mb-3 space-y-2">
-              {/* OCR provider + Extract / Re-extract */}
-              <div>
-                <label className="block text-[10px] font-semibold text-neutral-400 uppercase mb-1">OCR Provider</label>
-                <select
-                  value={ocrProvider}
-                  onChange={(e) => changeOcrProvider(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
-                >
-                  {ocrProviders.map((p) => (
-                    <option key={p.id} value={p.id} disabled={!p.available}>
-                      {p.label}
-                      {p.available ? '' : ' — not configured'}
-                    </option>
-                  ))}
-                </select>
-                {selectedProviderInfo && (
-                  <p className="text-[10px] text-neutral-500 mt-1">{selectedProviderInfo.note}</p>
-                )}
-              </div>
               {/* Step 0: Process images (clean before OCR) */}
               <button
                 type="button"
@@ -1069,35 +1137,122 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleExtractAllOcr(false)}
-                  disabled={extractingOcr}
-                  className="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-white text-xs font-semibold py-2 px-2 rounded-xl flex items-center justify-center space-x-1.5 transition-all disabled:opacity-50"
-                  title="Extract English + Hindi text; fills scenes that have no narration yet"
-                >
-                  {extractingOcr ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <ScanText className="w-3.5 h-3.5 text-purple-400" />
-                  )}
-                  <span>1. Extract Text</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (confirm('Re-extract all pages with the selected provider and REPLACE the English + Hindi narration of existing scenes?'))
-                      handleExtractAllOcr(true);
-                  }}
-                  disabled={extractingOcr}
-                  className="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-white text-xs font-semibold py-2 px-2 rounded-xl flex items-center justify-center space-x-1.5 transition-all disabled:opacity-50"
-                  title="Run OCR again with the selected provider and overwrite scene narrations"
-                >
-                  <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Re-extract</span>
-                </button>
+              {/* Text pipeline — Extract (OCR→EN) and Translate (EN→HI) as separate resumable stages */}
+              <div className="grid grid-cols-2 gap-1 bg-neutral-950 border border-neutral-800 rounded-lg p-1">
+                {(['extract', 'translate'] as const).map((tab) => {
+                  const pending = tab === 'extract' ? pendingExtract : pendingTranslate;
+                  const active = ocrTab === tab;
+                  const busy = tab === 'extract' ? extractingOcr : translatingAll;
+                  return (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setOcrTab(tab)}
+                      className={`py-1.5 px-1 rounded-md text-[11px] font-semibold flex items-center justify-center space-x-1 transition-colors ${
+                        active ? 'bg-neutral-800 text-white' : 'text-neutral-500 hover:text-neutral-300'
+                      }`}
+                    >
+                      <span>{tab === 'extract' ? '1. Extract' : '2. Translate'}</span>
+                      {busy ? (
+                        <Loader2 className="w-3 h-3 animate-spin text-indigo-400" />
+                      ) : pending > 0 ? (
+                        <span className="text-[9px] px-1 rounded bg-amber-600/30 text-amber-300 font-bold">
+                          {pending} left
+                        </span>
+                      ) : (
+                        <Check className="w-3 h-3 text-emerald-400" />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
+              <p className="text-[10px] text-neutral-500">
+                {ocrTab === 'extract'
+                  ? `${pendingExtract} of ${pages.length} page(s) pending OCR`
+                  : `${pendingTranslate} of ${translatableCount} page(s) with text pending translation`}
+              </p>
+
+              {ocrTab === 'extract' ? (
+                <>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-neutral-400 uppercase mb-1">OCR Provider</label>
+                    <select
+                      value={ocrProvider}
+                      onChange={(e) => changeOcrProvider(e.target.value)}
+                      className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                    >
+                      {ocrProviders.map((p) => (
+                        <option key={p.id} value={p.id} disabled={!p.available}>
+                          {p.label}
+                          {p.available ? '' : ' — not configured'}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedProviderInfo && (
+                      <p className="text-[10px] text-neutral-500 mt-1">{selectedProviderInfo.note}</p>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => runOcrStage('extract', false)}
+                      disabled={extractingOcr || pages.length === 0}
+                      className="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-white text-xs font-semibold py-2 px-2 rounded-xl flex items-center justify-center space-x-1.5 transition-all disabled:opacity-50"
+                      title="Run OCR on pending pages and extract English text"
+                    >
+                      {extractingOcr ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <ScanText className="w-3.5 h-3.5 text-purple-400" />
+                      )}
+                      <span>Extract Text</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm('Re-extract ALL pages with the selected provider and REPLACE existing English narration?'))
+                          runOcrStage('extract', true);
+                      }}
+                      disabled={extractingOcr || pages.length === 0}
+                      className="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-white text-xs font-semibold py-2 px-2 rounded-xl flex items-center justify-center space-x-1.5 transition-all disabled:opacity-50"
+                      title="Run OCR again on every page and overwrite extracted text"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Re-extract</span>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => runOcrStage('translate', false)}
+                    disabled={translatingAll || translatableCount === 0}
+                    className="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-white text-xs font-semibold py-2 px-2 rounded-xl flex items-center justify-center space-x-1.5 transition-all disabled:opacity-50"
+                    title="Translate extracted English text to Hindi (pending pages only)"
+                  >
+                    {translatingAll ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Languages className="w-3.5 h-3.5 text-cyan-400" />
+                    )}
+                    <span>Translate to Hindi</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm('Re-translate ALL extracted pages and REPLACE existing Hindi narration?'))
+                        runOcrStage('translate', true);
+                    }}
+                    disabled={translatingAll || translatableCount === 0}
+                    className="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-white text-xs font-semibold py-2 px-2 rounded-xl flex items-center justify-center space-x-1.5 transition-all disabled:opacity-50"
+                    title="Translate every page again and overwrite Hindi text"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Re-translate</span>
+                  </button>
+                </div>
+              )}
 
               {ocrSuccessMessage && (
                 <div className="p-2 bg-emerald-950/60 border border-emerald-800/80 rounded-xl text-[11px] text-emerald-300 text-center animate-fade-in">
@@ -1121,8 +1276,8 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                     <Video className="w-4 h-4" />
                     <span>
                       {selectedPageIds.length > 0
-                        ? `2. Add Selected (${selectedPageIds.length}) to Video`
-                        : `2. Add All Pages to Video (${pages.length})`}
+                        ? `3. Add Selected (${selectedPageIds.length}) to Video`
+                        : `3. Add All Pages to Video (${pages.length})`}
                     </span>
                   </>
                 )}
@@ -1436,7 +1591,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                 {activeCamera && inspectorTab === 'remove' && (
                   <button
                     type="button"
-                    onClick={autoCutBlankGapsAll}
+                    onClick={() => autoCutBlankGapsAll()}
                     disabled={!!autoCutProgress}
                     className="mt-3 w-full px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/50 rounded-lg text-[11px] font-semibold text-indigo-300 flex items-center justify-center space-x-1.5 disabled:opacity-50"
                   >

@@ -12,6 +12,8 @@
  * (deep-translator, free, no API key needed).
  */
 
+import { generateAIText, aiConfigured } from '@/lib/ai';
+
 export type OcrProvider = 'paddle';
 
 export interface OcrResult {
@@ -32,7 +34,7 @@ export function listOcrProviders() {
       id: 'paddle' as const,
       label: 'PaddleOCR (self-hosted, lightweight)',
       available: true,
-      note: 'Hindi via Gemini (colloquial) when GEMINI_API_KEY set, else OCR server /translate (free)',
+      note: 'Hindi via Gemini or Ollama (pick in Settings), else OCR server /translate (free)',
     },
   ];
 }
@@ -125,7 +127,7 @@ async function paddleLines(buf: Buffer): Promise<string[]> {
   const res = await fetch(`${paddleUrl()}/ocr`, {
     method: 'POST',
     body: fd,
-    signal: AbortSignal.timeout(120000), // CPU OCR of a tall page can be slow
+    signal: AbortSignal.timeout(300000), // CPU OCR of a tall page (server models, many strips) can take minutes
   });
   const json = await res.json().catch(() => null);
   if (!res.ok || !json?.success) {
@@ -139,23 +141,22 @@ async function paddleLines(buf: Buffer): Promise<string[]> {
 /* /translate (deep-translator, free, no key) as fallback              */
 /* ------------------------------------------------------------------ */
 
-/** Translation is always available: Gemini if GEMINI_API_KEY is set, else the OCR server. */
+/** Translation is always available: Gemini if a key is configured in Settings, else the OCR server. */
 export function canTranslate() {
   return true;
 }
 
 /**
- * EN → HI via Gemini: natural conversational Hindi the way people actually
- * speak in Mumbai — casual friend-to-friend speech, Hinglish loanwords kept
- * in Devanagari, and anything that would sound forced in pure Hindi left
- * untranslated. Returns '' on failure so callers can fall back.
+ * EN → HI via the active AI provider (Gemini or Ollama, picked in Settings):
+ * natural conversational Hindi the way people actually speak in Mumbai —
+ * casual friend-to-friend speech, Hinglish loanwords kept in Devanagari, and
+ * anything that would sound forced in pure Hindi left untranslated.
+ * Returns '' on failure so callers can fall back.
  */
-async function translateHindiWithGemini(text: string): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) return '';
-
-  const { GoogleGenAI } = await import('@google/genai');
-  const ai = new GoogleGenAI({ apiKey });
+async function translateHindiWithAI(text: string): Promise<string> {
+  // Keys/provider live in the DB (managed at /settings) — generateAIText
+  // returns '' when nothing is configured and callers fall back.
+  if (!(await aiConfigured())) return '';
 
   const prompt = `You translate webtoon/manga dialogue for Hindi-speaking viewers. Rewrite the English text as natural, everyday Hindi the way people actually talk in Mumbai — casual, conversational, friend-to-friend speech (e.g. "क्या कर रहा है?", "कैसा है भाई?", "अरे चल चल जल्दी!", "मत कर ऐसा").
 
@@ -171,8 +172,7 @@ Rules:
 Text:
 ${text}`;
 
-  const res = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
-  return (res.text || '').trim();
+  return generateAIText(prompt);
 }
 
 /** Translate text. EN→HI prefers Gemini (colloquial Mumbai Hindi); falls back to the OCR server's /translate. */
@@ -182,15 +182,15 @@ export async function translateText(text: string, target: 'hi' | 'en' = 'hi'): P
 
   if (target === 'hi') {
     try {
-      const hi = await translateHindiWithGemini(clean);
+      const hi = await translateHindiWithAI(clean);
       if (hi) return hi;
     } catch (e: any) {
-      console.warn('[OCR] Gemini Hindi translation failed, falling back:', e?.message || e);
+      console.warn('[OCR] AI Hindi translation failed, falling back:', e?.message || e);
     }
   }
 
   const source = target === 'hi' ? 'en' : 'hi';
-  const res = await fetch(`${paddleUrl()}/translate`, {
+    const res = await fetch(`${paddleUrl()}/translate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text: clean, target, source }),
@@ -214,10 +214,18 @@ async function loadImage(input: string | Buffer): Promise<Buffer> {
   return Buffer.from(await res.arrayBuffer());
 }
 
-export async function extractPageText(input: string | Buffer, _provider: OcrProvider = 'paddle'): Promise<OcrResult> {
+/** OCR only — English narration, no translation. */
+export async function extractPageTextEn(
+  input: string | Buffer,
+  _provider: OcrProvider = 'paddle'
+): Promise<{ provider: OcrProvider; raw: string; en: string }> {
   const buf = await loadImage(input);
   const lines = await paddleLines(buf);
-  const en = toNarration(lines);
+  return { provider: 'paddle', raw: lines.join('\n'), en: toNarration(lines) };
+}
+
+export async function extractPageText(input: string | Buffer, _provider: OcrProvider = 'paddle'): Promise<OcrResult> {
+  const { raw, en } = await extractPageTextEn(input, _provider);
   let hi = '';
   if (en) {
     try {
@@ -226,7 +234,7 @@ export async function extractPageText(input: string | Buffer, _provider: OcrProv
       console.warn('[OCR] Hindi translation failed:', e?.message || e);
     }
   }
-  return { provider: 'paddle', raw: lines.join('\n'), en, hi };
+  return { provider: 'paddle', raw, en, hi };
 }
 
 /** Backwards-compatible helper: English text only, '' on failure. */

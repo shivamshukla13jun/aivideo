@@ -1,122 +1,206 @@
-/**
- * OCR background job runner.
- * Extracts text (English + Hindi) for every page of a chapter with the job's
- * OCR provider, saves it on the Page document
- * (keyed by pageId = `${chapterId}_page_${order}`), refreshes generic scene
- * narrations, and records per-page progress on the OcrJob document so the
- * dashboard can show live status and retry failures.
- */
-
 import { connectDB } from '@/lib/mongodb';
+import { OcrJob } from '@/models/OcrJob';
+import { Chapter } from '@/models/Chapter';
 import { Page } from '@/models/Page';
 import { Scene } from '@/models/Scene';
-import { OcrJob } from '@/models/OcrJob';
-import { getFileBuffer } from '@/lib/minio';
-import { extractPageText, isProviderAvailable, type OcrProvider } from '@/lib/ocr';
+import { getFileBuffer, uploadFile, deleteFiles } from '@/lib/minio';
+import { extractPageTextEn, translateText } from '@/lib/ocr';
 
-export interface OcrJobResult {
-  total: number;
-  done: number;
-  failedOrders: number[];
+const paddleUrl = () =>
+  (process.env.PADDLEOCR_URL || 'http://localhost:5004').replace(/\/+$/, '');
+
+/**
+ * Send one page image through the OCR server's /preprocess endpoint and store
+ * the result back as a `_processed` object that replaces the original.
+ */
+async function preprocessPage(page: any, chapterId: string): Promise<void> {
+  const objectKey = page.publicId;
+  if (!objectKey) throw new Error('no image object key');
+
+  const buf = await getFileBuffer(objectKey);
+  const fd = new FormData();
+  fd.append('file', new Blob([new Uint8Array(buf)], { type: 'application/octet-stream' }), 'page.png');
+  const res = await fetch(`${paddleUrl()}/preprocess`, {
+    method: 'POST',
+    body: fd,
+    // CPU image cleanup on big pages can take a while
+    signal: AbortSignal.timeout(600_000),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error || `preprocess HTTP ${res.status}`);
+  }
+
+  const processedBuf = Buffer.from(await res.arrayBuffer());
+  const baseKey = objectKey.replace(/_processed(\.[^.]+)$/, '$1');
+  const editedKey = baseKey.replace(/(\.[^.]+)$/, '_processed.png');
+  const stored = await uploadFile(processedBuf, editedKey);
+
+  const oldUrls = [page.originalUrl, page.editedUrl].filter((u): u is string => Boolean(u));
+  await Page.findByIdAndUpdate(page._id, {
+    $set: {
+      originalUrl: stored.url,
+      editedUrl: stored.url,
+      publicId: editedKey,
+      processedKey: editedKey,
+    },
+  });
+  if (oldUrls.length) {
+    await Scene.updateMany(
+      { chapterId, image: { $in: oldUrls } },
+      { $set: { image: stored.url } }
+    );
+  }
+  const staleKeys = new Set([objectKey, page.processedKey].filter((k): k is string => Boolean(k)));
+  staleKeys.delete(editedKey);
+  if (staleKeys.size) await deleteFiles([...staleKeys]);
 }
 
-export async function runOcrJob(jobId: string): Promise<OcrJobResult> {
+/**
+ * Runs an OcrJob document to completion.
+ * - stage 'preprocess': clean page images via the OCR server → replaces originals in MinIO
+ * - stage 'extract':    PaddleOCR each page → Page.extractedText/ocrRaw + first-scene narration
+ * - stage 'translate':  Page.extractedText → AI → Page.extractedTextHi + first-scene narrationHi
+ *
+ * Resumable by default: pages that already have the stage's output are skipped,
+ * so restarting after a reload only processes what's still pending.
+ * `overwriteScenes` = re-run everything; `failedOrders` retry = failed pages only.
+ */
+export async function runOcrJob(jobId: string) {
   await connectDB();
-
   const job = await OcrJob.findOne({ jobId });
-  if (!job) throw new Error(`OCR job not found: ${jobId}`);
+  if (!job) throw new Error(`OcrJob ${jobId} not found`);
 
-  const chapterId = job.chapterId;
+  const stage: 'extract' | 'translate' | 'preprocess' =
+    job.stage === 'translate' ? 'translate' : job.stage === 'preprocess' ? 'preprocess' : 'extract';
 
   job.status = 'running';
+  job.attempts += 1;
   job.startedAt = new Date();
-  job.finishedAt = undefined;
   job.error = '';
-  job.attempts = (job.attempts || 0) + 1;
   await job.save();
 
-  // Pages come from MongoDB — extracted from the uploaded CBZ into MinIO
-  const pages = await Page.find({ chapterId, status: { $ne: 'deleted' } }).sort({ order: 1 }).lean();
-  if (pages.length === 0) throw new Error(`No pages found for chapter ${chapterId} — upload a CBZ first`);
+  try {
+    const chapter = await Chapter.findById(job.chapterId);
+    if (!chapter) throw new Error(`Chapter ${job.chapterId} not found`);
 
-  // On retry, only re-process pages that previously failed
-  const retryOnly = job.failedOrders && job.failedOrders.length > 0 ? new Set(job.failedOrders) : null;
-  if (retryOnly === null) {
-    job.totalPages = pages.length;
-    job.donePages = 0;
-    job.failedOrders = [];
+    const pages: any[] = await Page.find({ chapterId: job.chapterId, status: { $ne: 'deleted' } })
+      .sort({ order: 1 })
+      .lean();
+
+    const overwrite = job.overwriteScenes;
+    // Retries only re-process the orders that previously failed.
+    const retryOnly = job.failedOrders && job.failedOrders.length > 0 ? new Set(job.failedOrders) : null;
+
+    // Translate only applies to pages that actually have extracted text;
+    // preprocess/extract run on every page.
+    const eligible = stage === 'translate'
+      ? pages.filter((p) => ((p as any).extractedText || '').trim())
+      : pages;
+
+    const isPending = (p: any) =>
+      stage === 'extract'
+        ? !p.ocrProvider
+        : stage === 'preprocess'
+          ? !p.processedKey
+          : !(p.extractedTextHi || '').trim();
+
+    // totalPages = what this run will actually process, so progress reads "done/pending"
+    if (!retryOnly) {
+      job.totalPages = overwrite ? eligible.length : eligible.filter(isPending).length;
+      job.donePages = 0;
+    }
     await job.save();
-  }
 
-  const failedOrders: number[] = [];
-  const provider: OcrProvider = isProviderAvailable(job.provider) ? (job.provider as OcrProvider) : 'paddle';
-  const overwrite = Boolean(job.overwriteScenes);
+    const failedOrders: number[] = [];
+    let done = 0;
 
-  for (let idx = 0; idx < pages.length; idx++) {
-    const pageDoc0 = pages[idx];
-    const order = pageDoc0.order ?? idx + 1;
-    if (retryOnly && !retryOnly.has(order)) continue;
+    for (let idx = 0; idx < eligible.length; idx++) {
+      const p = eligible[idx];
+      const order = p.order ?? idx + 1;
 
-    try {
-      // Prefer the processed/edited image; fall back to the original
-      const key = pageDoc0.processedKey || pageDoc0.publicId;
-      const input = key
-        ? await getFileBuffer(key)
-        : (pageDoc0.editedUrl || pageDoc0.originalUrl);
-      // Provider errors (quota, network) fail the page so it can be retried
-      const ocr = await extractPageText(input, provider);
+      if (retryOnly && !retryOnly.has(order)) continue;
+      if (!retryOnly && !overwrite && !isPending(p)) continue;
 
-      const pageDoc = await Page.findByIdAndUpdate(
-        pageDoc0._id,
-        {
-          $set: {
-            extractedText: ocr.en,
-            extractedTextHi: ocr.hi,
-            ocrRaw: ocr.raw,
-            ocrProvider: ocr.provider,
-          },
-        },
-        { returnDocument: 'after' }
-      );
+      try {
+        if (stage === 'preprocess') {
+          await preprocessPage(p, job.chapterId);
+          done++;
+          job.donePages = done;
+          job.failedOrders = failedOrders;
+          await job.save();
+          continue;
+        }
 
-      const pageScenes = await Scene.find({
-        chapterId,
-        pageId: { $in: [String(pageDoc!._id), pageDoc0.pageId].filter(Boolean) },
-      }).sort({ order: 1 });
+        const first: any = await Scene.findOne({ chapterId: job.chapterId, 'meta.pageOrders': order })
+          .sort({ order: 1 })
+          .lean();
 
-      // Only the first scene of a page carries its narration; split continuations keep their own text
-      const first = pageScenes[0];
-      if (first) {
-        const generic = !first.narration || first.narration.startsWith('Narration for Page');
-        if (overwrite || generic) first.narration = ocr.en;
-        if (overwrite || !first.narrationHi) first.narrationHi = ocr.hi;
-        await first.save();
+        if (stage === 'extract') {
+          const key = p.processedKey || p.publicId;
+          const input = key ? await getFileBuffer(key) : p.originalUrl || p.editedUrl;
+          const ocr = await extractPageTextEn(input, job.provider as any);
+
+          await Page.findByIdAndUpdate(p._id, {
+            $set: {
+              extractedText: ocr.en,
+              ocrRaw: ocr.raw,
+              ocrProvider: ocr.provider,
+            },
+          });
+          if (first) {
+            const cur = await Scene.findById(first._id);
+            if (cur) {
+              const generic = !cur.narration || cur.narration === `Scene ${cur.order + 1}`;
+              if (overwrite || generic) cur.narration = ocr.en;
+              await cur.save();
+            }
+          }
+        } else {
+          const en = (p.extractedText || '').trim();
+          const hi = await translateText(en, 'hi');
+          if (!hi) throw new Error('Translation returned empty text');
+
+          await Page.findByIdAndUpdate(p._id, {
+            $set: { extractedTextHi: hi },
+          });
+          if (first) {
+            const cur = await Scene.findById(first._id);
+            if (cur && (overwrite || !cur.narrationHi)) {
+              cur.narrationHi = hi;
+              await cur.save();
+            }
+          }
+        }
+        done++;
+      } catch (e: any) {
+        failedOrders.push(order);
+        console.warn(`[OCR] Page ${order} ${stage} failed:`, e?.message || e);
       }
 
-      await OcrJob.updateOne({ jobId }, { $inc: { donePages: 1 }, $pull: { failedOrders: order } });
-    } catch (pageErr: any) {
-      console.warn(`[OCR Job ${jobId}] Page ${order} failed:`, pageErr?.message || pageErr);
-      failedOrders.push(order);
-      await OcrJob.updateOne({ jobId }, { $addToSet: { failedOrders: order } });
+      job.donePages = done;
+      job.failedOrders = failedOrders;
+      await job.save();
     }
+
+    job.finishedAt = new Date();
+    job.failedOrders = failedOrders;
+    job.donePages = done;
+    if (failedOrders.length > 0) {
+      job.status = 'failed';
+      job.error = `${failedOrders.length} page(s) failed ${stage}`;
+    } else {
+      job.status = 'done';
+      job.error = '';
+    }
+    await job.save();
+
+    return { done, failed: failedOrders.length, failedOrders };
+  } catch (err: any) {
+    job.status = 'failed';
+    job.error = err?.message || 'OCR job failed';
+    job.finishedAt = new Date();
+    await job.save();
+    throw err;
   }
-
-  const fresh = await OcrJob.findOne({ jobId });
-  const remainingFailed = fresh?.failedOrders?.length || 0;
-  const total = fresh?.totalPages || pages.length;
-  const done = fresh?.donePages || 0;
-  const completedAll = retryOnly ? remainingFailed === 0 : done + remainingFailed >= total;
-
-  await OcrJob.updateOne(
-    { jobId },
-    {
-      $set: {
-        status: completedAll ? 'done' : 'failed',
-        finishedAt: new Date(),
-        error: completedAll ? '' : `${remainingFailed} page(s) failed OCR`,
-      },
-    }
-  );
-
-  return { total, done, failedOrders };
 }

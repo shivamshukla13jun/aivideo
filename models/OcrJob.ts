@@ -7,7 +7,9 @@ export interface IOcrJobDoc extends Document {
   seriesTitle: string;
   chapterName: string;
   provider: string;
-  /** Re-extract: replace existing scene narrations instead of only filling empty ones. */
+  /** Which pipeline stage this job runs: image cleanup, OCR→EN extraction, or EN→HI translation. */
+  stage: 'extract' | 'translate' | 'preprocess';
+  /** Re-run: replace existing values instead of only filling missing ones. */
   overwriteScenes: boolean;
   status: 'queued' | 'running' | 'done' | 'failed';
   totalPages: number;
@@ -29,6 +31,7 @@ const OcrJobSchema = new Schema<IOcrJobDoc>(
     seriesTitle: { type: String, default: '' },
     chapterName: { type: String, default: '' },
     provider: { type: String, default: 'paddle' },
+    stage: { type: String, enum: ['extract', 'translate', 'preprocess'], default: 'extract' },
     overwriteScenes: { type: Boolean, default: false },
     status: { type: String, enum: ['queued', 'running', 'done', 'failed'], default: 'queued', index: true },
     totalPages: { type: Number, default: 0 },
@@ -43,7 +46,13 @@ const OcrJobSchema = new Schema<IOcrJobDoc>(
 );
 
 // A model cached by hot reload with an older schema would silently drop the newer fields
-if (mongoose.models.OcrJob && !mongoose.models.OcrJob.schema.path('provider')) mongoose.deleteModel('OcrJob');
+const cachedOcrJob = mongoose.models.OcrJob;
+if (
+  cachedOcrJob &&
+  !(cachedOcrJob.schema.path('stage') as any)?.enumValues?.includes('preprocess')
+) {
+  mongoose.deleteModel('OcrJob');
+}
 
 export const OcrJob: Model<IOcrJobDoc> =
   mongoose.models.OcrJob || mongoose.model<IOcrJobDoc>('OcrJob', OcrJobSchema);

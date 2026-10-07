@@ -3,6 +3,7 @@ import { connectDB } from '@/lib/mongodb';
 import { Chapter } from '@/models/Chapter';
 import { Scene } from '@/models/Scene';
 import { Series } from '@/models/Series';
+import { generateAIText, aiConfigured } from '@/lib/ai';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,15 +60,11 @@ export async function POST(req: NextRequest) {
     const narrations = scenes.map((s: any) => s.narration).filter(Boolean) as string[];
     const fallback = buildFallbackSeo(seriesTitle, chapter, narrations, extraKeywords);
 
-    const apiKey = process.env.GEMINI_API_KEY?.trim();
-    if (!apiKey) {
+    if (!(await aiConfigured())) {
       return NextResponse.json({ success: true, data: fallback, source: 'fallback' });
     }
 
     try {
-      const { GoogleGenAI } = await import('@google/genai');
-      const ai = new GoogleGenAI({ apiKey });
-
       const scriptSample = narrations.join('\n').slice(0, 4000);
       const prompt = `You are a YouTube SEO expert for webtoon/manga recap channels. Generate optimized metadata for this video as strict JSON.
 
@@ -87,11 +84,7 @@ Return ONLY a JSON object, no markdown fences:
   "categoryId": "24"
 }`;
 
-      const result = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-      });
-      const text = (result.text || '').trim();
+      const text = (await generateAIText(prompt)).trim();
       const jsonStr = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
       const parsed = JSON.parse(jsonStr);
 
@@ -102,7 +95,7 @@ Return ONLY a JSON object, no markdown fences:
         hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags.map(String).slice(0, 15) : fallback.hashtags,
         categoryId: String(parsed.categoryId || '24'),
       };
-      return NextResponse.json({ success: true, data, source: 'gemini' });
+      return NextResponse.json({ success: true, data, source: 'ai' });
     } catch (aiErr: any) {
       console.warn('Gemini SEO generation failed, using fallback:', aiErr.message);
       return NextResponse.json({ success: true, data: fallback, source: 'fallback' });

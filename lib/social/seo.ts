@@ -11,6 +11,8 @@
  * 7. AI-powered enhancement via Gemini (when available)
  */
 
+import { generateAIText, aiConfigured } from '@/lib/ai';
+
 export interface AdvancedSeoResult {
   /** Primary optimized metadata */
   primary: SeoMetadata;
@@ -461,7 +463,7 @@ export function generateAdvancedSeo(
   };
 }
 
-/** AI-enhanced SEO using Gemini (when GEMINI_API_KEY is available). */
+/** AI-enhanced SEO using Gemini (when a key is configured in Settings). */
 export async function enhanceSeoWithAI(
   baseSeo: AdvancedSeoResult,
   narrations: string[],
@@ -469,13 +471,9 @@ export async function enhanceSeoWithAI(
   chapterNumber: number,
   chapterTitle: string
 ): Promise<AdvancedSeoResult> {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) return baseSeo;
+  if (!(await aiConfigured())) return baseSeo;
 
   try {
-    const { GoogleGenAI } = await import('@google/genai');
-    const ai = new GoogleGenAI({ apiKey });
-
     const scriptSample = narrations.join('\n').slice(0, 3000);
 
     const prompt = `You are a viral content strategist for a WEBTOON/MANHWA/MANGA chapter recap channel. This video is ALWAYS an animated webtoon chapter — never generic content.
@@ -515,11 +513,7 @@ Generate STRICTLY as JSON (no markdown fences):
   "tips": ["3 specific actionable tips to make THIS webtoon chapter video go viral"]
 }`;
 
-    const result = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    });
-    const text = (result.text || '').trim();
+    const text = (await generateAIText(prompt)).trim();
     const jsonStr = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
     const parsed = JSON.parse(jsonStr);
 
