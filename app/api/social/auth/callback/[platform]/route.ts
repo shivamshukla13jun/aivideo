@@ -47,7 +47,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ plat
           lastSyncedAt: new Date(),
         },
       },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
 
     return NextResponse.redirect(

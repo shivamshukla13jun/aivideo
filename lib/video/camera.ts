@@ -9,12 +9,13 @@
  */
 
 export type Aspect = '16:9' | '9:16';
-export type Easing = 'linear' | 'ease-in-out' | 'ease-out' | 'ease-in';
+export type Easing = 'linear' | 'ease-in-out' | 'ease-out' | 'ease-in' | 'steps';
 export type Keyframe = { cx: number; cy: number; zoom: number };
-export type Camera = { start: Keyframe; end: Keyframe; easing: Easing };
+export type Camera = { start: Keyframe; end: Keyframe; easing: Easing; steps?: number };
 export type CameraPreset =
   | 'read-down'
   | 'read-up'
+  | 'slideshow'
   | 'hold'
   | 'zoom-in'
   | 'zoom-out'
@@ -73,6 +74,14 @@ export function presetCamera(preset: CameraPreset, aspect: Aspect, iw: number, i
       return { start: at(0), end: at(1), easing: 'linear' };
     case 'read-up':
       return { start: at(1), end: at(0), easing: 'linear' };
+    case 'slideshow': {
+      // Step through the page like a slide deck: hold on each viewport-sized
+      // "slide", then slide to the next. Steps = number of screens in the page.
+      const { hh } = visibleHalf({ zoom: z }, aspect, iw, ih);
+      const visible = Math.min(1, hh * 2);
+      const screens = Math.max(1, Math.round(1 / visible));
+      return { start: at(0), end: at(1), easing: 'steps', steps: screens };
+    }
     case 'hold':
       return { start: center, end: center, easing: 'linear' };
     case 'zoom-in':
@@ -128,15 +137,28 @@ export function cameraFromLegacyEffect(effect: string | undefined, aspect: Aspec
   return presetCamera('hold', aspect, iw, ih);
 }
 
-const EASINGS: Record<Easing, (t: number) => number> = {
+const EASINGS: Record<Exclude<Easing, 'steps'>, (t: number) => number> = {
   linear: (t) => t,
   'ease-in': (t) => t * t * t,
   'ease-out': (t) => 1 - Math.pow(1 - t, 3),
   'ease-in-out': (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
 };
 
+/** Slideshow easing: hold ~70% of each step, eased slide to the next viewport. */
+function steppedEase(t: number, steps: number): number {
+  const n = Math.max(1, Math.round(steps));
+  const i = Math.floor(t * n);
+  if (i >= n) return 1;
+  const frac = t * n - i;
+  const slide = Math.min(1, frac / 0.3);
+  const e = slide < 0.5 ? 4 * slide * slide * slide : 1 - Math.pow(-2 * slide + 2, 3) / 2;
+  return (i + e) / n;
+}
+
 export function interpolateCamera(cam: Camera, progress: number): Keyframe {
-  const t = EASINGS[cam.easing || 'linear'](clamp(progress, 0, 1));
+  const t = cam.easing === 'steps'
+    ? steppedEase(clamp(progress, 0, 1), cam.steps ?? 4)
+    : EASINGS[cam.easing || 'linear'](clamp(progress, 0, 1));
   // Interpolate zoom geometrically so zooming feels uniform
   const zoom = cam.start.zoom * Math.pow(cam.end.zoom / cam.start.zoom, t);
   return {
@@ -150,8 +172,12 @@ export function interpolateCamera(cam: Camera, progress: number): Keyframe {
 export function splitCamera(cam: Camera, progress: number): [Camera, Camera] {
   const mid = interpolateCamera(cam, progress);
   const r = (k: Keyframe): Keyframe => ({ cx: round4(k.cx), cy: round4(k.cy), zoom: round4(k.zoom) });
+  const easing = cam.easing || 'linear';
+  // Keep stepped cameras stepped — scale each half's slide count to its share
+  const stepsA = cam.steps ? Math.max(1, Math.round(cam.steps * progress)) : undefined;
+  const stepsB = cam.steps ? Math.max(1, cam.steps - Math.round(cam.steps * progress)) : undefined;
   return [
-    { start: cam.start, end: r(mid), easing: 'linear' },
-    { start: r(mid), end: cam.end, easing: 'linear' },
+    { start: cam.start, end: r(mid), easing, steps: stepsA },
+    { start: r(mid), end: cam.end, easing, steps: stepsB },
   ];
 }

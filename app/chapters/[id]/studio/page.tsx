@@ -9,11 +9,13 @@ import CameraEditor from '@/components/video/CameraEditor';
 import { WebtoonVideo } from '@/components/video/WebtoonVideo';
 import {
   Aspect,
+  CameraPreset,
   FPS,
   FRAME_SIZE,
   defaultCamera,
   defaultDurationSeconds,
   interpolateCamera,
+  presetCamera,
   splitCamera,
 } from '@/lib/video/camera';
 import {
@@ -316,6 +318,33 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   const handleUpdateActiveScene = (field: string, value: any) => {
     if (activeScene) patchScene(activeScene._id, { [field]: value });
   };
+
+  /** Apply a camera preset to every scene, computed per-page from its own image size. */
+  const applyPresetToAllScenes = (preset: CameraPreset) => {
+    scenes.forEach((s) => {
+      if (!s.imageWidth || !s.imageHeight) return;
+      patchScene(s._id, {
+        camera: presetCamera(preset, aspect, s.imageWidth, effectiveImageHeight(s), s.camera),
+      });
+    });
+  };
+
+  /** Apply a single field (duration / transition / effects / visualEffect) to every scene. */
+  const applyFieldToAllScenes = (field: string, value: any) => {
+    scenes.forEach((s) => patchScene(s._id, { [field]: value }));
+  };
+
+  /** Tiny "apply to all scenes" button placed next to inspector field labels. */
+  const applyAllBtn = (field: string, value: any) => (
+    <button
+      type="button"
+      onClick={() => applyFieldToAllScenes(field, value)}
+      className="ml-1.5 text-neutral-500 hover:text-indigo-400 transition-colors align-middle"
+      title={`Apply this to all ${scenes.length} scenes`}
+    >
+      <Layers className="w-3 h-3 inline" />
+    </button>
+  );
 
   // Refresh pages + scenes after OCR completes
   const refreshOcrResults = async () => {
@@ -1354,6 +1383,8 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                     camera={activeCamera}
                     liveKeyframe={liveKeyframe}
                     onChange={(cam) => handleUpdateActiveScene('camera', cam)}
+                    totalScenes={scenes.length}
+                    onApplyPresetToAll={applyPresetToAllScenes}
                   />
                 ) : activeCamera ? (
                   <SceneCleanupEditor
@@ -1382,7 +1413,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
 
               <section className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-semibold text-neutral-400 uppercase mb-1">Duration (s)</label>
+                  <label className="block text-[11px] font-semibold text-neutral-400 uppercase mb-1">Duration (s){applyAllBtn('duration', activeScene.duration || 5)}</label>
                   <input
                     type="number"
                     min="0.5"
@@ -1403,7 +1434,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                   )}
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold text-neutral-400 uppercase mb-1">Transition In</label>
+                  <label className="block text-[11px] font-semibold text-neutral-400 uppercase mb-1">Transition In{applyAllBtn('transition', activeScene.transition === 'dissolve' ? 'fade' : activeScene.transition || 'none')}</label>
                   <select
                     value={activeScene.transition === 'dissolve' ? 'fade' : activeScene.transition || 'none'}
                     onChange={(e) => handleUpdateActiveScene('transition', e.target.value)}
@@ -1416,7 +1447,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold text-neutral-400 uppercase mb-1">Camera FX</label>
+                  <label className="block text-[11px] font-semibold text-neutral-400 uppercase mb-1">Camera FX{applyAllBtn('effects', cameraFxValue)}</label>
                   <select
                     value={cameraFxValue}
                     onChange={(e) => handleUpdateActiveScene('effects', e.target.value)}
@@ -1436,7 +1467,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold text-neutral-400 uppercase mb-1">Visual FX</label>
+                  <label className="block text-[11px] font-semibold text-neutral-400 uppercase mb-1">Visual FX{applyAllBtn('visualEffect', activeScene.visualEffect || 'none')}</label>
                   <select
                     value={activeScene.visualEffect || 'none'}
                     onChange={(e) => handleUpdateActiveScene('visualEffect', e.target.value)}

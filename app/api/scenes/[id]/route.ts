@@ -19,7 +19,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const { id } = await params;
     const body = await req.json();
     await connectDB();
-    const updated = await Scene.findByIdAndUpdate(id, body, { new: true });
+    const updated = await Scene.findByIdAndUpdate(id, body, { returnDocument: 'after' });
     return NextResponse.json({ success: true, data: updated });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

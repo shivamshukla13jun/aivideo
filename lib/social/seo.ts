@@ -574,7 +574,6 @@ Generate STRICTLY as JSON (no markdown fences):
     baseSeo.viralityScore.score = Math.min(100, baseSeo.viralityScore.score + 15);
     if (baseSeo.viralityScore.score >= 80) baseSeo.viralityScore.tier = 'viral';
     else if (baseSeo.viralityScore.score >= 60) baseSeo.viralityScore.tier = 'high';
-
     return baseSeo;
   } catch (err: any) {
     console.warn('AI SEO enhancement failed:', err.message);

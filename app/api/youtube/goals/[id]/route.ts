@@ -9,7 +9,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const { id } = await params;
     const body = await req.json();
     await connectDB();
-    const goal = await MonetizationGoal.findByIdAndUpdate(id, body, { new: true });
+    const goal = await MonetizationGoal.findByIdAndUpdate(id, body, { returnDocument: 'after' });
     if (!goal) return NextResponse.json({ success: false, error: 'Goal not found' }, { status: 404 });
     return NextResponse.json({ success: true, data: goal });
   } catch (error: any) {

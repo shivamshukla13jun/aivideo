@@ -76,7 +76,7 @@ export async function runOcrJob(jobId: string): Promise<OcrJobResult> {
             ocrProvider: ocr.provider,
           },
         },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       const pageScenes = await Scene.find({

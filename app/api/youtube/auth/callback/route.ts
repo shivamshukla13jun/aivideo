@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
           lastSyncedAt: new Date(),
         },
       },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
 
     return NextResponse.redirect(

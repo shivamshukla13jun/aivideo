@@ -3,8 +3,10 @@
  *
  * Pages are POSTed to the self-hosted PaddleOCR service (docker-compose
  * `paddleocr` service, PADDLEOCR_URL, default http://localhost:5004) which
- * runs the lightweight PP-OCR mobile models on CPU, groups detections into
- * speech bubbles, and returns bubble text in reading order.
+ * runs PP-OCRv5 server models on CPU (PADDLE_OCR_MODEL=mobile for the
+ * lightweight tier), light-preprocesses the page, splits tall webtoon
+ * strips, re-checks dark pages with an inverted pass, groups detections
+ * into speech bubbles, and returns bubble text in reading order.
  *
  * Hindi translation is done by the same OCR server via /translate
  * (deep-translator, free, no API key needed).
@@ -53,7 +55,9 @@ export async function pingPaddleOcr(): Promise<boolean> {
 /* Text clean-up helpers                                               */
 /* ------------------------------------------------------------------ */
 
-const WATERMARK = /(https?:\/\/|www\.|\.(com|net|org|io|xyz|site|online|to|gg)\b|scans?\b|discord|patreon|translat(or|ed by)|raw provider)/i;
+// Watermark/site-promo detection — only match actual site references, not
+// dialogue containing words like "scans" or "translate".
+const WATERMARK = /(https?:\/\/|www\.|\w+\.(com|net|org|io|xyz|site|online|to|gg)\b|discord|patreon|ko-fi|translat(?:ed|ion)\s+by|scanlation|raw\s*provider|read\s+\w+\s+(?:at|on)\s+\w+\.)/i;
 
 function isGarbage(line: string) {
   const t = line.trim();

@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
         deadline: body.deadline ? new Date(body.deadline) : undefined,
         note: body.note || '',
       },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
     return NextResponse.json({ success: true, data: goal });
   } catch (error: any) {

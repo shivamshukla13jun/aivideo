@@ -90,6 +90,7 @@ export function sceneCamera(scene: any, aspect: Aspect): Camera {
     start: clampKeyframe(cam.start, aspect, iw, ih),
     end: clampKeyframe(cam.end, aspect, iw, ih),
     easing: cam.easing || 'linear',
+    steps: cam.steps,
   };
 }
 

@@ -11,6 +11,7 @@ import {
   ArrowDownLeft,
   Copy,
   Focus,
+  GalleryVertical,
   Maximize2,
   Move,
   MoveHorizontal,
@@ -49,6 +50,10 @@ interface Props {
   camera: Camera;
   liveKeyframe?: Keyframe | null;
   onChange: (camera: Camera) => void;
+  /** Total scene count — enables the "apply to all scenes" toggle. */
+  totalScenes?: number;
+  /** Called when a preset is clicked while "apply to all" is on. */
+  onApplyPresetToAll?: (preset: CameraPreset) => void;
 }
 
 const KEY_STYLE: Record<Key, { border: string; bg: string; label: string }> = {
@@ -60,6 +65,7 @@ const PRESETS: { id: CameraPreset; label: string; icon: React.ReactNode; group: 
   // Basic
   { id: 'read-down', label: 'Read ↓', icon: <ArrowDown className="w-3 h-3" />, group: 'Basic' },
   { id: 'read-up', label: 'Read ↑', icon: <ArrowUp className="w-3 h-3" />, group: 'Basic' },
+  { id: 'slideshow', label: 'Slides', icon: <GalleryVertical className="w-3 h-3" />, group: 'Basic' },
   { id: 'hold', label: 'Hold', icon: <Pause className="w-3 h-3" />, group: 'Basic' },
   { id: 'zoom-in', label: 'Zoom In', icon: <ZoomIn className="w-3 h-3" />, group: 'Basic' },
   { id: 'zoom-out', label: 'Zoom Out', icon: <ZoomOut className="w-3 h-3" />, group: 'Basic' },
@@ -87,8 +93,11 @@ export default function CameraEditor({
   camera,
   liveKeyframe,
   onChange,
+  totalScenes = 0,
+  onApplyPresetToAll,
 }: Props) {
   const [activeKey, setActiveKey] = useState<Key>('start');
+  const [applyToAll, setApplyToAll] = useState(false);
   const [frozenWidthFrac, setFrozenWidthFrac] = useState<number | null>(null);
   const imgBoxRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -220,6 +229,7 @@ export default function CameraEditor({
           <option value="ease-in-out">Ease In-Out (cinematic)</option>
           <option value="ease-out">Ease Out (fast → slow)</option>
           <option value="ease-in">Ease In (slow → fast)</option>
+          <option value="steps">Steps (slideshow)</option>
         </select>
       </div>
 
@@ -274,6 +284,22 @@ export default function CameraEditor({
         />
       </div>
 
+      {onApplyPresetToAll && totalScenes > 1 && (
+        <label className={`flex items-center space-x-2 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border cursor-pointer transition-colors ${
+          applyToAll
+            ? 'bg-indigo-600/20 border-indigo-500/60 text-indigo-300'
+            : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:border-neutral-600'
+        }`}>
+          <input
+            type="checkbox"
+            checked={applyToAll}
+            onChange={(e) => setApplyToAll(e.target.checked)}
+            className="accent-indigo-500"
+          />
+          <span>Apply presets to all {totalScenes} scenes</span>
+        </label>
+      )}
+
       {(['Basic', 'Cinematic'] as const).map((group) => (
         <div key={group} className="space-y-1.5">
           <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider">{group}</span>
@@ -282,7 +308,11 @@ export default function CameraEditor({
               <button
                 key={p.id}
                 type="button"
-                onClick={() => onChange(presetCamera(p.id, aspect, iw, ih, camera))}
+                onClick={() =>
+                  applyToAll && onApplyPresetToAll
+                    ? onApplyPresetToAll(p.id)
+                    : onChange(presetCamera(p.id, aspect, iw, ih, camera))
+                }
                 className="px-2 py-1.5 bg-neutral-800 hover:bg-neutral-700 rounded-lg text-[11px] text-neutral-200 flex items-center justify-center space-x-1"
               >
                 {p.icon}

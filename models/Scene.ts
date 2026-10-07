@@ -30,6 +30,7 @@ export interface ISceneDoc extends Document {
     start: { cx: number; cy: number; zoom: number };
     end: { cx: number; cy: number; zoom: number };
     easing: string;
+    steps?: number;
   };
   cuts?: { top: number; bottom: number }[];
   hideBoxes?: { x: number; y: number; width: number; height: number; mode: string }[];
@@ -74,6 +75,7 @@ const SceneSchema = new Schema<ISceneDoc>(
           start: { cx: Number, cy: Number, zoom: Number },
           end: { cx: Number, cy: Number, zoom: Number },
           easing: { type: String, default: 'linear' },
+          steps: { type: Number },
         },
         { _id: false }
       ),
@@ -97,6 +99,6 @@ const SceneSchema = new Schema<ISceneDoc>(
 );
 
 // A model cached by hot reload with an older schema would silently drop the newer fields
-if (mongoose.models.Scene && !mongoose.models.Scene.schema.path('audio.url')) mongoose.deleteModel('Scene');
+if (mongoose.models.Scene && (!mongoose.models.Scene.schema.path('audio.url') || !mongoose.models.Scene.schema.path('camera.steps'))) mongoose.deleteModel('Scene');
 
 export const Scene: Model<ISceneDoc> = mongoose.models.Scene || mongoose.model<ISceneDoc>('Scene', SceneSchema);
