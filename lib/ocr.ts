@@ -32,7 +32,7 @@ export function listOcrProviders() {
       id: 'paddle' as const,
       label: 'PaddleOCR (self-hosted, lightweight)',
       available: true,
-      note: 'Hindi via OCR server /translate (free, no key needed)',
+      note: 'Hindi via Gemini (colloquial) when GEMINI_API_KEY set, else OCR server /translate (free)',
     },
   ];
 }
@@ -135,18 +135,59 @@ async function paddleLines(buf: Buffer): Promise<string[]> {
 }
 
 /* ------------------------------------------------------------------ */
-/* Translation (via OCR server /translate — free, no API key)          */
+/* Translation — Gemini (natural Mumbai-style Hindi) → OCR server      */
+/* /translate (deep-translator, free, no key) as fallback              */
 /* ------------------------------------------------------------------ */
 
-/** Translation is always available since it uses the OCR server's /translate endpoint (deep-translator). */
+/** Translation is always available: Gemini if GEMINI_API_KEY is set, else the OCR server. */
 export function canTranslate() {
   return true;
 }
 
-/** Translate text via the OCR server's /translate endpoint. */
+/**
+ * EN → HI via Gemini: natural conversational Hindi the way people actually
+ * speak in Mumbai — casual friend-to-friend speech, Hinglish loanwords kept
+ * in Devanagari, and anything that would sound forced in pure Hindi left
+ * untranslated. Returns '' on failure so callers can fall back.
+ */
+async function translateHindiWithGemini(text: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) return '';
+
+  const { GoogleGenAI } = await import('@google/genai');
+  const ai = new GoogleGenAI({ apiKey });
+
+  const prompt = `You translate webtoon/manga dialogue for Hindi-speaking viewers. Rewrite the English text as natural, everyday Hindi the way people actually talk in Mumbai — casual, conversational, friend-to-friend speech (e.g. "क्या कर रहा है?", "कैसा है भाई?", "अरे चल चल जल्दी!", "मत कर ऐसा").
+
+Rules:
+- Output Devanagari script only.
+- Spoken Hinglish flavour: everyday English loanwords stay as spoken, transliterated into Devanagari — "attack" → "अटैक", "plan" → "प्लान", "time" → "टाइम", "level" → "लेवल", "training" → "ट्रेनिंग".
+- NO formal or literary Hindi — avoid words like अत्यंत, कृपया, अवसर, वर्तमान; say बहुत, भाई, मौका, अभी.
+- If a word has no natural Hindi equivalent or would sound forced (character names, places, powers, technique names, brand/foreign words), do NOT translate it — keep it transliterated in Devanagari exactly as it's said (e.g. "Iron Fist" → "आयरन फिस्ट").
+- Match the emotion and tone of each line — shouting, whispering, sarcasm, fear, excitement.
+- Keep sentence order, line breaks, ellipses and punctuation.
+- Output ONLY the Hindi text. No notes, no explanations.
+
+Text:
+${text}`;
+
+  const res = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+  return (res.text || '').trim();
+}
+
+/** Translate text. EN→HI prefers Gemini (colloquial Mumbai Hindi); falls back to the OCR server's /translate. */
 export async function translateText(text: string, target: 'hi' | 'en' = 'hi'): Promise<string> {
   const clean = text.trim();
   if (!clean) return '';
+
+  if (target === 'hi') {
+    try {
+      const hi = await translateHindiWithGemini(clean);
+      if (hi) return hi;
+    } catch (e: any) {
+      console.warn('[OCR] Gemini Hindi translation failed, falling back:', e?.message || e);
+    }
+  }
 
   const source = target === 'hi' ? 'en' : 'hi';
   const res = await fetch(`${paddleUrl()}/translate`, {
