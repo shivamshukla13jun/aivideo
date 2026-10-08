@@ -8,7 +8,35 @@ import {
 } from './camera';
 import { HideBox, Segment, keptFraction, keptSegments, normalizeHideBoxes } from './cleanup';
 
-export type SceneTransition = 'none' | 'fade' | 'slide' | 'wipe';
+export type SceneTransition =
+  | 'none'
+  | 'fade'
+  | 'dissolve'
+  | 'slide'
+  | 'wipe'
+  | 'push-cut'
+  | 'blur-slide'
+  | 'linear-blur'
+  | 'cross-zoom'
+  | 'zoom-in-out'
+  | 'iris'
+  | 'flip';
+
+/** Options shown in the transition pickers (editor + default-for-new-scenes). */
+export const TRANSITION_OPTIONS: { id: SceneTransition; label: string }[] = [
+  { id: 'none', label: 'Cut (continuous)' },
+  { id: 'fade', label: 'Crossfade' },
+  { id: 'dissolve', label: 'Dissolve' },
+  { id: 'slide', label: 'Slide' },
+  { id: 'wipe', label: 'Wipe' },
+  { id: 'push-cut', label: 'Push' },
+  { id: 'blur-slide', label: 'Blur Slide' },
+  { id: 'linear-blur', label: 'Whip Blur' },
+  { id: 'cross-zoom', label: 'Zoom Punch' },
+  { id: 'zoom-in-out', label: 'Zoom In-Out' },
+  { id: 'iris', label: 'Iris' },
+  { id: 'flip', label: 'Flip' },
+];
 export type CameraFx = 'none' | 'shake' | 'pulse' | 'float' | 'heartbeat' | 'zoom-pulse' | 'breathe';
 export type VisualFx =
   | 'none'
@@ -68,7 +96,7 @@ export function loadImageSize(url: string): Promise<{ width: number; height: num
   });
 }
 
-const TRANSITIONS: SceneTransition[] = ['none', 'fade', 'slide', 'wipe'];
+const TRANSITIONS = TRANSITION_OPTIONS.map((o) => o.id);
 const CAMERA_FX: CameraFx[] = ['none', 'shake', 'pulse', 'float', 'heartbeat', 'zoom-pulse', 'breathe'];
 const VISUAL_FX: VisualFx[] = [
   'none', 'vignette', 'speed-lines', 'bloom', 'flash',
@@ -108,7 +136,7 @@ export function buildVideoProps(scenes: any[], aspect: Aspect, showSubtitles: bo
       camera: sceneCamera(s, aspect),
       cameraFx: CAMERA_FX.includes(s.effects) ? s.effects : 'none',
       visualFx: VISUAL_FX.includes(s.visualEffect) ? s.visualEffect : 'none',
-      transition: s.transition === 'dissolve' ? 'fade' : TRANSITIONS.includes(s.transition) ? s.transition : 'none',
+      transition: TRANSITIONS.includes(s.transition) ? s.transition : 'none',
       audioUrl: s.audio?.url || s.audio?.cloudinaryUrl || null,
       narration: s.narration || '',
       narrationHi: s.narrationHi || '',

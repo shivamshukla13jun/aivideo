@@ -3,8 +3,16 @@ import { AbsoluteFill, Img, interpolate, random, useCurrentFrame, useVideoConfig
 import { Audio } from '@remotion/media';
 import { TransitionSeries, linearTiming, type TransitionPresentation } from '@remotion/transitions';
 import { fade } from '@remotion/transitions/fade';
+import { dissolve } from '@remotion/transitions/dissolve';
 import { slide } from '@remotion/transitions/slide';
 import { wipe } from '@remotion/transitions/wipe';
+import { pushCut } from '@remotion/transitions/push-cut';
+import { blurSlide } from '@remotion/transitions/blur-slide';
+import { linearBlur } from '@remotion/transitions/linear-blur';
+import { crossZoom } from '@remotion/transitions/cross-zoom';
+import { zoomInOut } from '@remotion/transitions/zoom-in-out';
+import { iris } from '@remotion/transitions/iris';
+import { flip } from '@remotion/transitions/flip';
 import { FPS, TRANSITION_FRAMES, interpolateCamera } from '@/lib/video/camera';
 import { chunkAt, subtitleChunks } from '@/lib/video/subtitles';
 import CleanedImage from './CleanedImage';
@@ -17,10 +25,20 @@ const subtitleText: React.CSSProperties = {
 };
 import { hasTransitionIn, type SceneTransition, type VideoScene, type WebtoonVideoProps } from '@/lib/video/project';
 
-function presentationFor(t: SceneTransition): TransitionPresentation<any> {
-  if (t === 'slide') return slide({ direction: 'from-right' });
-  if (t === 'wipe') return wipe({ direction: 'from-right' });
-  return fade();
+function presentationFor(t: SceneTransition, width: number, height: number): TransitionPresentation<any> {
+  switch (t) {
+    case 'dissolve': return dissolve({});
+    case 'slide': return slide({ direction: 'from-right' });
+    case 'wipe': return wipe({ direction: 'from-right' });
+    case 'push-cut': return pushCut();
+    case 'blur-slide': return blurSlide({ direction: 'from-right' });
+    case 'linear-blur': return linearBlur({ intensity: 0.6 });
+    case 'cross-zoom': return crossZoom({ strength: 0.4 });
+    case 'zoom-in-out': return zoomInOut({});
+    case 'iris': return iris({ width, height });
+    case 'flip': return flip({ direction: 'from-right' });
+    default: return fade();
+  }
 }
 
 const Vignette: React.FC = () => {
@@ -296,6 +314,7 @@ const SceneView: React.FC<{ scene: VideoScene; showSubtitles: boolean }> = ({ sc
 };
 
 export const WebtoonVideo: React.FC<WebtoonVideoProps> = ({ scenes, showSubtitles }) => {
+  const { width, height } = useVideoConfig();
   if (scenes.length === 0) {
     return <AbsoluteFill style={{ backgroundColor: '#000' }} />;
   }
@@ -306,7 +325,7 @@ export const WebtoonVideo: React.FC<WebtoonVideoProps> = ({ scenes, showSubtitle
       children.push(
         <TransitionSeries.Transition
           key={`t-${scene.id}`}
-          presentation={presentationFor(scene.transition)}
+          presentation={presentationFor(scene.transition, width, height)}
           timing={linearTiming({ durationInFrames: TRANSITION_FRAMES })}
         />
       );

@@ -46,17 +46,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ success: false, error: 'order is required (1-based page number)' }, { status: 400 });
     }
 
-    // Reject duplicate order — a page already exists at this position
+    // Reject duplicate order unless inserting — then shift that slot and all
+    // later pages up by one so the new page takes the requested position.
+    const insert = fields.insert === 'true' || fields.insert === '1';
     const existing = await Page.findOne({ chapterId: id, order });
     if (existing) {
-      return NextResponse.json(
-        { success: false, error: `Page ${order} already exists`, data: existing },
-        { status: 409 }
+      if (!insert) {
+        return NextResponse.json(
+          { success: false, error: `Page ${order} already exists`, data: existing },
+          { status: 409 }
+        );
+      }
+      await Page.updateMany(
+        { chapterId: id, order: { $gte: order }, status: { $ne: 'deleted' } },
+        { $inc: { order: 1 } }
       );
     }
 
     const ext = file.originalname.match(/\.[a-z0-9]+$/i)?.[0] || '.jpg';
-    const key = `chapters/${id}/pages/${String(order).padStart(4, '0')}${ext}`;
+    const key = `chapters/${id}/pages/${String(order).padStart(4, '0')}-${Date.now()}${ext}`;
     const stored = await uploadFile(file.buffer, key, file.originalname, file.mimetype);
 
     const page = await Page.create({

@@ -120,7 +120,7 @@ export function presetCamera(preset: CameraPreset, aspect: Aspect, iw: number, i
   }
 }
 
-export const defaultCamera = (aspect: Aspect, iw: number, ih: number) => presetCamera('read-down', aspect, iw, ih);
+export const defaultCamera = (aspect: Aspect, iw: number, ih: number) => presetCamera('full-page', aspect, iw, ih);
 
 /** Reading-speed based duration: ~2.5s per screen scrolled, plus a short hold. */
 export function defaultDurationSeconds(aspect: Aspect, iw: number, ih: number) {

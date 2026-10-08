@@ -26,6 +26,7 @@ import {
   sceneCamera,
   sceneIndexAtFrame,
   toVideoSrc,
+  TRANSITION_OPTIONS,
 } from '@/lib/video/project';
 import { detectBlankGaps, keptFraction, keptSegments, normalizeCuts, normalizeHideBoxes } from '@/lib/video/cleanup';
 import SceneCleanupEditor from '@/components/video/SceneCleanupEditor';
@@ -52,6 +53,7 @@ import {
   Smartphone,
   Monitor,
   Video,
+  Play,
   Timer,
   Eraser,
   Languages,
@@ -73,6 +75,23 @@ const cleanScene = (s: any) => ({
   visualEffect: s.visualEffect || 'none',
 });
 
+/** One-click look presets: camera move + camera FX + visual FX + transition. */
+const STYLE_PRESETS: {
+  id: string;
+  label: string;
+  camera: CameraPreset;
+  effects: string;
+  visual: string;
+  transition: string;
+}[] = [
+  { id: 'recap', label: 'Recap', camera: 'read-down', effects: 'none', visual: 'none', transition: 'push-cut' },
+  { id: 'cinematic', label: 'Cinematic', camera: 'dolly-in', effects: 'breathe', visual: 'letterbox', transition: 'dissolve' },
+  { id: 'action', label: 'Action', camera: 'whip-pan', effects: 'shake', visual: 'speed-lines', transition: 'blur-slide' },
+  { id: 'dramatic', label: 'Dramatic', camera: 'focus-pull', effects: 'heartbeat', visual: 'noir', transition: 'fade' },
+  { id: 'dreamy', label: 'Dreamy', camera: 'drift', effects: 'float', visual: 'bloom', transition: 'cross-zoom' },
+  { id: 'slides', label: 'Slideshow', camera: 'full-page', effects: 'none', visual: 'vignette', transition: 'fade' },
+];
+
 export default function VideoStudioPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const chapterId = resolvedParams.id;
@@ -82,6 +101,15 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   const [pages, setPages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
+
+  // Page splitter / insert / reorder states
+  const [splitPage, setSplitPage] = useState<any | null>(null);
+  const [splitCut, setSplitCut] = useState(0.5);
+  const [splittingPage, setSplittingPage] = useState(false);
+  const [addingPage, setAddingPage] = useState(false);
+  const [lastStylePreset, setLastStylePreset] = useState<string>('');
+  const pageFileInputRef = useRef<HTMLInputElement | null>(null);
+  const insertOrderRef = useRef<number>(0);
 
   // Checkbox Selection States
   const [selectedPageIds, setSelectedPageIds] = useState<string[]>([]);
@@ -95,6 +123,14 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
     if (typeof window !== 'undefined') return localStorage.getItem('studio-auto-save') === 'true';
     return false;
   });
+  // Transition applied automatically to every newly-added scene
+  const [defaultTransition, setDefaultTransition] = useState(() =>
+    typeof window !== 'undefined' ? localStorage.getItem('studio-default-transition') || 'fade' : 'fade'
+  );
+  const changeDefaultTransition = (t: string) => {
+    setDefaultTransition(t);
+    localStorage.setItem('studio-default-transition', t);
+  };
   const [preprocessingImages, setPreprocessingImages] = useState(false);
   const [preprocessMessage, setPreprocessMessage] = useState('');
 
@@ -453,6 +489,125 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
     }
   };
 
+  /* ---------- Page ops: split, reorder, insert ---------- */
+
+  const openSplitter = (page: any) => {
+    setSplitPage(page);
+    setSplitCut(0.5);
+  };
+
+  const confirmSplit = async () => {
+    if (!splitPage || splittingPage) return;
+    setSplittingPage(true);
+    try {
+      const res = await fetch(`/api/chapters/${chapterId}/pages/${splitPage._id}/split`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cutAt: splitCut }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Split failed');
+      setSplitPage(null);
+      await refreshOcrResults();
+    } catch (e: any) {
+      alert(e.message || 'Split failed');
+    } finally {
+      setSplittingPage(false);
+    }
+  };
+
+  const movePage = async (page: any, dir: -1 | 1) => {
+    const idx = pages.findIndex((p) => p._id === page._id);
+    const swapIdx = idx + dir;
+    if (idx < 0 || swapIdx < 0 || swapIdx >= pages.length) return;
+    const next = [...pages];
+    [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+    setPages(next); // optimistic — restore from server on failure
+    try {
+      await fetch(`/api/chapters/${chapterId}/pages/reorder`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pageIds: next.map((p) => p._id) }),
+      });
+    } catch {
+      await refreshOcrResults();
+    }
+  };
+
+  const addImageAt = (order: number) => {
+    insertOrderRef.current = order;
+    pageFileInputRef.current?.click();
+  };
+
+  const onPageFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || addingPage) return;
+    setAddingPage(true);
+    try {
+      const fd = new FormData();
+      fd.append('page', file);
+      fd.append('order', String(insertOrderRef.current));
+      fd.append('insert', 'true'); // shift existing pages up so this one takes the slot
+      const res = await fetch(`/api/chapters/${chapterId}/pages`, { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!data.success) alert(data.error || 'Upload failed');
+      else await refreshOcrResults();
+    } catch {
+      alert('Upload failed');
+    } finally {
+      setAddingPage(false);
+    }
+  };
+
+  /** One-click look preset: camera move + camera FX + visual FX + transition. */
+  const applyStylePreset = (presetId: string, all: boolean) => {
+    const p = STYLE_PRESETS.find((x) => x.id === presetId);
+    if (!p) return;
+    const targets = all ? scenes : activeScene ? [activeScene] : [];
+    targets.forEach((s) => {
+      if (!s.imageWidth || !s.imageHeight) return;
+      patchScene(s._id, {
+        camera: presetCamera(p.camera, aspect, s.imageWidth, effectiveImageHeight(s)),
+        effects: p.effects,
+        visualEffect: p.visual,
+        transition: p.transition,
+      });
+    });
+    setLastStylePreset(p.id);
+  };
+
+  // Run the whole pipeline with one click: preprocess → extract → translate.
+  // Jobs land on the shared queue whose worker runs one at a time, so they
+  // execute back-to-back; the 5s poller reports each stage's progress.
+  const handleRunPipeline = async () => {
+    setOcrSuccessMessage('Queuing pipeline…');
+    try {
+      const res = await fetch(`/api/chapters/${chapterId}/pipeline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.error || 'Failed to start pipeline');
+        setOcrSuccessMessage('');
+        return;
+      }
+      if (typeof data.queued === 'number' && data.queued > 0) return; // poller drives progress
+      if (data.queued === true) return;
+
+      // Synchronous fallback (RabbitMQ unavailable)
+      await refreshOcrResults();
+      setOcrSuccessMessage('Pipeline finished');
+      setTimeout(() => setOcrSuccessMessage(''), 6000);
+    } catch (err) {
+      console.error(err);
+      alert('Pipeline request failed');
+      setOcrSuccessMessage('');
+    }
+  };
+
   // Text pipeline: 'extract' = OCR→EN, 'translate' = EN→HI. Both run as queued
   // background jobs; the 5s poller reports progress and handles completion.
   // Pending pages are skipped server-side — a re-run continues where it left off.
@@ -606,14 +761,15 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
             narration: page.extractedText || '',
             narrationHi: page.extractedTextHi || '',
             dialogue: '',
-            duration: defaultDurationSeconds(aspect, size.width, size.height),
+            // Static full-page scenes don't need scroll-length durations — cap at 6s
+            duration: Math.min(defaultDurationSeconds(aspect, size.width, size.height), 6),
             image,
             imageWidth: size.width,
             imageHeight: size.height,
             camera: defaultCamera(aspect, size.width, size.height),
             effects: 'none',
             visualEffect: 'none',
-            transition: 'none',
+            transition: defaultTransition,
             zoom: 1,
           }),
         });
@@ -1137,6 +1293,22 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                 </div>
               )}
 
+              {/* One click runs everything — jobs execute one-by-one on the queue */}
+              <button
+                type="button"
+                onClick={handleRunPipeline}
+                disabled={extractingOcr || translatingAll || preprocessingImages || pages.length === 0}
+                className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center justify-center space-x-2 shadow-lg transition-all disabled:opacity-50"
+                title="Queue Process Images → Extract Text → Translate, run one after another"
+              >
+                {extractingOcr || translatingAll || preprocessingImages ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4" />
+                )}
+                <span>Run All: Clean → OCR → Hindi</span>
+              </button>
+
               {/* Text pipeline — Extract (OCR→EN) and Translate (EN→HI) as separate resumable stages */}
               <div className="grid grid-cols-2 gap-1 bg-neutral-950 border border-neutral-800 rounded-lg p-1">
                 {(['extract', 'translate'] as const).map((tab) => {
@@ -1276,12 +1448,29 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                     <Video className="w-4 h-4" />
                     <span>
                       {selectedPageIds.length > 0
-                        ? `3. Add Selected (${selectedPageIds.length}) to Video`
-                        : `3. Add All Pages to Video (${pages.length})`}
+                        ? `4. Add Selected (${selectedPageIds.length}) to Video`
+                        : `4. Add All Pages to Video (${pages.length})`}
                     </span>
                   </>
                 )}
               </button>
+              <div>
+                <label className="block text-[10px] font-semibold text-neutral-400 uppercase mb-1">
+                  New Scene Transition
+                </label>
+                <select
+                  value={defaultTransition}
+                  onChange={(e) => changeDefaultTransition(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                >
+                  {TRANSITION_OPTIONS.map((t) => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-neutral-500 mt-1">
+                  Applied to every scene you add — change any scene afterwards in its editor.
+                </p>
+              </div>
               <p className="text-[10px] text-neutral-500 leading-relaxed">
                 Pages are added in reading order as full webtoon scenes that scroll top → bottom, with OCR text as
                 narration. Adjust the camera, cut scenes at the playhead, and add effects in the editor.
@@ -1290,7 +1479,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
 
             {/* Pages Grid */}
             <div className="grid grid-cols-3 gap-2 overflow-y-auto max-h-[360px] pr-1">
-              {pages.map((page) => {
+              {pages.map((page, idx) => {
                 const isSelected = selectedPageIds.includes(page._id);
                 const hasOcr = Boolean(page.extractedText && page.extractedText.trim().length > 0);
                 return (
@@ -1346,10 +1535,67 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                     <div className="absolute bottom-1 right-1 bg-neutral-950/80 px-1 py-0.5 rounded text-[9px] font-bold text-neutral-300 pointer-events-none">
                       #{page.order}
                     </div>
+
+                    {/* Page tools — split / reorder / insert (appear on hover) */}
+                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center space-x-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        type="button"
+                        title="Split this page in two"
+                        onClick={(e) => { e.stopPropagation(); openSplitter(page); }}
+                        className="bg-neutral-950/85 hover:bg-rose-600 text-white p-1 rounded transition-colors"
+                      >
+                        <Scissors className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Move earlier"
+                        disabled={idx === 0}
+                        onClick={(e) => { e.stopPropagation(); movePage(page, -1); }}
+                        className="bg-neutral-950/85 hover:bg-indigo-600 text-white p-1 rounded transition-colors disabled:opacity-40"
+                      >
+                        <ChevronUp className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Move later"
+                        disabled={idx === pages.length - 1}
+                        onClick={(e) => { e.stopPropagation(); movePage(page, 1); }}
+                        className="bg-neutral-950/85 hover:bg-indigo-600 text-white p-1 rounded transition-colors disabled:opacity-40"
+                      >
+                        <ChevronDown className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Insert a new image after this page"
+                        onClick={(e) => { e.stopPropagation(); addImageAt(page.order + 1); }}
+                        className="bg-neutral-950/85 hover:bg-emerald-600 text-white p-1 rounded transition-colors"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    </div>
                   </div>
                 );
               })}
+
+              {/* Append a new page image at the end */}
+              <button
+                type="button"
+                onClick={() => addImageAt((pages[pages.length - 1]?.order || 0) + 1)}
+                disabled={addingPage}
+                className="aspect-[3/4] border border-dashed border-neutral-700 rounded-lg text-neutral-500 hover:text-white hover:border-indigo-500 flex flex-col items-center justify-center space-y-1 text-[10px] font-semibold transition-colors disabled:opacity-50"
+                title="Upload a new page image at the end"
+              >
+                {addingPage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                <span>{addingPage ? 'Uploading…' : 'Add image'}</span>
+              </button>
             </div>
+            <input
+              ref={pageFileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={onPageFilePicked}
+            />
           </div>
         </div>
 
@@ -1634,16 +1880,47 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                   )}
                 </div>
                 <div>
+                  <label className="block text-[11px] font-semibold text-neutral-400 uppercase mb-1">
+                    Style Presets
+                    {lastStylePreset && scenes.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => applyStylePreset(lastStylePreset, true)}
+                        className="ml-1.5 text-neutral-500 hover:text-indigo-400 transition-colors align-middle"
+                        title={`Apply "${lastStylePreset}" to every scene`}
+                      >
+                        <Layers className="w-3 h-3 inline" /> all
+                      </button>
+                    )}
+                  </label>
+                  <div className="grid grid-cols-3 gap-1 mb-1">
+                    {STYLE_PRESETS.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => applyStylePreset(p.id, false)}
+                        title={`${p.camera} camera + ${p.effects}/${p.visual} fx + ${p.transition} transition — preview on this scene`}
+                        className={`px-1 py-1.5 rounded-lg text-[10px] font-semibold transition-colors ${
+                          lastStylePreset === p.id
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
                   <label className="block text-[11px] font-semibold text-neutral-400 uppercase mb-1">Transition In{applyAllBtn('transition', activeScene.transition === 'dissolve' ? 'fade' : activeScene.transition || 'none')}</label>
                   <select
                     value={activeScene.transition === 'dissolve' ? 'fade' : activeScene.transition || 'none'}
                     onChange={(e) => handleUpdateActiveScene('transition', e.target.value)}
                     className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
                   >
-                    <option value="none">Cut (continuous)</option>
-                    <option value="fade">Crossfade</option>
-                    <option value="slide">Slide</option>
-                    <option value="wipe">Wipe</option>
+                    {TRANSITION_OPTIONS.map((t) => (
+                      <option key={t.id} value={t.id}>{t.label}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -1786,6 +2063,99 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
           )}
         </div>
       </div>
+
+      {/* Page splitter — pick the cut line, preview both halves, confirm */}
+      {splitPage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-6"
+          onClick={() => !splittingPage && setSplitPage(null)}
+        >
+          <div
+            className="bg-neutral-900 border border-neutral-700 rounded-2xl p-4 w-full max-w-3xl flex gap-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Left: the page with a draggable cut line */}
+            <div className="flex-1 flex flex-col min-w-0">
+              <p className="text-[11px] text-neutral-400 mb-2">
+                Drag/click on the image to place the cut — page {splitPage.order} splits into two pages
+              </p>
+              <div
+                className="relative inline-block mx-auto select-none cursor-crosshair"
+                onMouseDown={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setSplitCut(Math.min(0.95, Math.max(0.05, (e.clientY - r.top) / r.height)));
+                }}
+                onMouseMove={(e) => {
+                  if (!(e.buttons & 1)) return;
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setSplitCut(Math.min(0.95, Math.max(0.05, (e.clientY - r.top) / r.height)));
+                }}
+              >
+                <img
+                  src={pageImage(splitPage)}
+                  alt={`Page ${splitPage.order}`}
+                  draggable={false}
+                  className="max-h-[68vh] w-auto block rounded-lg"
+                />
+                <div
+                  className="absolute left-0 right-0 border-t-2 border-rose-500 pointer-events-none"
+                  style={{ top: `${splitCut * 100}%` }}
+                >
+                  <span className="absolute -top-3 left-1 bg-rose-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
+                    {Math.round(splitCut * 100)}%
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: how each half looks framed at the video aspect */}
+            <div className="w-44 shrink-0 space-y-2">
+              <p className="text-[10px] font-semibold text-neutral-400 uppercase">Video preview</p>
+              <div>
+                <p className="text-[10px] text-neutral-500 mb-1">Top → page {splitPage.order}</p>
+                <div
+                  className="relative bg-black rounded-lg overflow-hidden border border-neutral-800"
+                  style={{ aspectRatio: aspect === '16:9' ? '16/9' : '9/16' }}
+                >
+                  <img
+                    src={pageImage(splitPage)}
+                    alt="Top half preview"
+                    className="w-full h-full object-contain"
+                    style={{ clipPath: `inset(0 0 ${(1 - splitCut) * 100}% 0)` }}
+                  />
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] text-neutral-500 mb-1">Bottom → page {splitPage.order + 1}</p>
+                <div
+                  className="relative bg-black rounded-lg overflow-hidden border border-neutral-800"
+                  style={{ aspectRatio: aspect === '16:9' ? '16/9' : '9/16' }}
+                >
+                  <img
+                    src={pageImage(splitPage)}
+                    alt="Bottom half preview"
+                    className="w-full h-full object-contain"
+                    style={{ clipPath: `inset(${splitCut * 100}% 0 0 0)` }}
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={confirmSplit}
+                disabled={splittingPage}
+                className="w-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold py-2 rounded-xl flex items-center justify-center space-x-1.5 transition-colors disabled:opacity-50"
+              >
+                {splittingPage ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Scissors className="w-3.5 h-3.5" />}
+                <span>{splittingPage ? 'Splitting…' : 'Split Here'}</span>
+              </button>
+              <p className="text-[9px] text-neutral-600 leading-snug">
+                New page inserts at position {splitPage.order + 1}; later pages shift. OCR is cleared on both halves so
+                Extract re-runs on them.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showPublishPanel && (
         <MultiPlatformPublishPanel
