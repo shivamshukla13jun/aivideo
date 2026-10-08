@@ -6,8 +6,7 @@
  * from env at runtime. For every enabled key the model chain is walked in
  * order; on quota errors (429) or auth failures the next KEY is tried, on
  * overloaded/unavailable models (503/404) the next MODEL. Auth errors abort
- * early — a rejected key fails every model — and auto-disable the key.
- * A one-time migration seeds the collection from GEMINI_API_KEY if it has
+ * early — a rejected key fails every model — and auto-disable the key.\
  * no keys yet; env is never consulted after that.
  */
 
@@ -55,16 +54,6 @@ interface KeyRef {
 
 async function getGeminiKeys(): Promise<KeyRef[]> {
   const { GeminiKey } = await db();
-  // One-time migration: seed from GEMINI_API_KEY while the collection is empty.
-  if (process.env.GEMINI_API_KEY?.trim()) {
-    const count = await GeminiKey.estimatedDocumentCount();
-    if (count === 0) {
-      await GeminiKey.create({
-        key: process.env.GEMINI_API_KEY.trim(),
-        label: 'from .env',
-      }).catch(() => {});
-    }
-  }
   const keys = await GeminiKey.find({ disabled: { $ne: true } })
     .sort({ createdAt: 1 })
     .lean();
