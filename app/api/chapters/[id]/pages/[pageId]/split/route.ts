@@ -14,14 +14,18 @@ const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
  * POST /api/chapters/[id]/pages/[pageId]/split — cut a page into pieces.
  *
  * Body:
- *   { regions: [{start, end}, …] }  — each marked part (fractions of height,
- *   0..1) becomes its own page in order; unmarked parts are removed.
- *   { cutAt: 0..1 }                 — legacy single cut → top + bottom halves.
+ *   { regions: [{x, y, w, h, script?}, …] } — each marked RECT (fractions of
+ *   image width/height, 0..1) becomes its own page in top→bottom order.
+ *   Unmarked parts are removed. Crops are extracted at original resolution
+ *   and saved as lossless PNG — no quality loss.
+ *   Legacy: {start,end} regions mean full-width bands; {cutAt} splits in two.
+ *
+ *   A region's `script` text is stored as the new page's English narration
+ *   (`ocrProvider='script'` so the extract stage skips it; translate still runs).
  *
  * The first part keeps the existing Page doc; the rest are inserted right
- * after it (later page orders shift). OCR fields are cleared on every new
- * page so the extract stage re-runs on them. Scenes built from the old page
- * are repointed at the first part; the original object is deleted.
+ * after it (later page orders shift). Scenes built from the old page are
+ * repointed at the first part; the original object is deleted.
  */
 export async function POST(
   req: NextRequest,
@@ -31,13 +35,27 @@ export async function POST(
     const { id: chapterId, pageId } = await params;
     const body = await req.json().catch(() => ({}));
 
-    // Normalize input → ordered region list
-    let regions: { start: number; end: number }[];
+    type Rect = { x: number; y: number; w: number; h: number; script: string };
+    let regions: Rect[];
     if (Array.isArray(body.regions)) {
       regions = body.regions
-        .map((r: any) => ({ start: clamp01(Number(r.start)), end: clamp01(Number(r.end)) }))
-        .filter((r: any) => Number.isFinite(r.start) && Number.isFinite(r.end) && r.end - r.start >= 0.02)
-        .sort((a: any, b: any) => a.start - b.start);
+        .map((r: any) => {
+          // Rect form {x,y,w,h} or legacy band form {start,end}
+          const isRect = r.x !== undefined || r.w !== undefined;
+          const x = clamp01(Number(isRect ? r.x : 0));
+          const y = clamp01(Number(isRect ? r.y : r.start));
+          const w = isRect ? clamp01(Number(r.w)) : 1;
+          const h = isRect ? clamp01(Number(r.h)) : clamp01(Number(r.end) - Number(r.start));
+          return {
+            x,
+            y,
+            w: Math.min(w, 1 - x),
+            h: Math.min(h, 1 - y),
+            script: typeof r.script === 'string' ? r.script.trim() : '',
+          };
+        })
+        .filter((r: Rect) => r.w >= 0.02 && r.h >= 0.01)
+        .sort((a: Rect, b: Rect) => a.y - b.y || a.x - b.x);
     } else if (Number.isFinite(Number(body.cutAt))) {
       const c = clamp01(Number(body.cutAt));
       if (c < 0.05 || c > 0.95) {
@@ -47,12 +65,12 @@ export async function POST(
         );
       }
       regions = [
-        { start: 0, end: c },
-        { start: c, end: 1 },
+        { x: 0, y: 0, w: 1, h: c, script: '' },
+        { x: 0, y: c, w: 1, h: 1 - c, script: '' },
       ];
     } else {
       return NextResponse.json(
-        { success: false, error: 'Provide regions: [{start, end}, …] or cutAt' },
+        { success: false, error: 'Provide regions: [{x, y, w, h, script?}, …] or cutAt' },
         { status: 400 }
       );
     }
@@ -75,18 +93,20 @@ export async function POST(
     const width = meta.width || 0;
     const height = meta.height || 0;
 
-    // Slice every region → PNG buffers
+    // Slice every rect → PNG buffers (extract at native resolution — no resampling)
     const parts = [];
     for (const r of regions) {
-      const top = Math.floor(r.start * height);
-      const bottom = Math.min(height, Math.ceil(r.end * height));
-      if (bottom - top < 50) {
+      const left = Math.round(r.x * width);
+      const top = Math.round(r.y * height);
+      const w = Math.min(width - left, Math.max(1, Math.round(r.w * width)));
+      const h = Math.min(height - top, Math.max(1, Math.round(r.h * height)));
+      if (w < 40 || h < 40) {
         return NextResponse.json(
-          { success: false, error: 'A selected part is too thin — every part must be at least 50px tall' },
+          { success: false, error: 'A selected part is too small — each crop must be at least 40×40px' },
           { status: 400 }
         );
       }
-      parts.push(await sharp(buf).extract({ left: 0, top, width, height: bottom - top }).png().toBuffer());
+      parts.push(await sharp(buf).extract({ left, top, width: w, height: h }).png().toBuffer());
     }
 
     // Upload parts, make room: shift later pages by (regions - 1)
@@ -109,15 +129,16 @@ export async function POST(
 
     const oldUrls = [page.originalUrl, page.editedUrl].filter((u): u is string => Boolean(u));
 
-    // First part keeps the existing doc; OCR cleared (image changed)
+    // First part keeps the existing doc. A part with a script keeps that text
+    // (marked 'script' so extract skips it); otherwise OCR is cleared → re-runs.
     page.originalUrl = uploads[0].url;
     page.editedUrl = uploads[0].url;
     page.publicId = `chapters/${chapterId}/pages/${pad}a-${stamp}.png`;
     page.processedKey = '';
-    page.extractedText = '';
+    page.extractedText = regions[0].script;
     page.extractedTextHi = '';
     page.ocrRaw = '';
-    page.ocrProvider = '';
+    page.ocrProvider = regions[0].script ? 'script' : '';
     await page.save();
 
     const created = [];
@@ -130,6 +151,8 @@ export async function POST(
           originalUrl: uploads[i].url,
           editedUrl: uploads[i].url,
           publicId: `chapters/${chapterId}/pages/${pad}${suffixes[i] || `x${i}`}-${stamp}.png`,
+          extractedText: regions[i].script || '',
+          ocrProvider: regions[i].script ? 'script' : '',
           panels: [],
           status: 'active',
         })
