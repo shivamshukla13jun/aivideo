@@ -2,11 +2,10 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState, use } from 'react';
 import Link from 'next/link';
-import { Player, type PlayerRef } from '@remotion/player';
+import VideoPreview, { PreviewPlayer } from '@/components/video/VideoPreview';
 import Navbar from '@/components/Navbar';
 import MultiPlatformPublishPanel from '@/components/MultiPlatformPublishPanel';
 import CameraEditor from '@/components/video/CameraEditor';
-import { WebtoonVideo } from '@/components/video/WebtoonVideo';
 import {
   Aspect,
   CameraPreset,
@@ -30,6 +29,7 @@ import {
 } from '@/lib/video/project';
 import { detectBlankGaps, keptFraction, keptSegments, normalizeCuts, normalizeHideBoxes } from '@/lib/video/cleanup';
 import SceneCleanupEditor from '@/components/video/SceneCleanupEditor';
+import { renderVideoToBlob } from '@/lib/video/exportVideo';
 import {
   Film,
   Plus,
@@ -59,6 +59,7 @@ import {
   Languages,
   RefreshCw,
   Save,
+  Download,
   ToggleLeft,
   ToggleRight,
   Wand2,
@@ -103,9 +104,6 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
 
   // Page splitter / insert / reorder states
-  const [splitPage, setSplitPage] = useState<any | null>(null);
-  const [splitCut, setSplitCut] = useState(0.5);
-  const [splittingPage, setSplittingPage] = useState(false);
   const [addingPage, setAddingPage] = useState(false);
   const [lastStylePreset, setLastStylePreset] = useState<string>('');
   const pageFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -156,6 +154,10 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
 
   // YouTube Publish Panel
   const [showPublishPanel, setShowPublishPanel] = useState(false);
+  // MP4 export (renders + downloads straight from the studio)
+  const [exporting, setExporting] = useState(false);
+  const [exportLabel, setExportLabel] = useState('');
+  const exportAbortRef = useRef<AbortController | null>(null);
 
   // Video output & player state
   const [aspect, setAspect] = useState<Aspect>('16:9');
@@ -166,7 +168,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   const [pxPerSecond, setPxPerSecond] = useState(14);
   const [inspectorTab, setInspectorTab] = useState<'camera' | 'remove'>('camera');
   const [autoCutProgress, setAutoCutProgress] = useState<{ done: number; total: number } | null>(null);
-  const playerRef = useRef<PlayerRef>(null);
+  const [player] = useState(() => new PreviewPlayer());
 
   // Debounced per-scene saves (camera dragging / typing fire many updates)
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -268,9 +270,8 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
 
   // Player → studio sync (throttled by the player's timeupdate cadence)
   useEffect(() => {
-    const player = playerRef.current;
     if (!player) return;
-    const onTime = (e: { detail: { frame: number } }) => setPlayheadFrame(e.detail.frame);
+    const onTime = (e: Event) => setPlayheadFrame((e as CustomEvent).detail.frame);
     const onPlay = () => setIsPlaying(true);
     const onPause = () => {
       setIsPlaying(false);
@@ -286,7 +287,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
       player.removeEventListener('play', onPlay);
       player.removeEventListener('pause', onPause);
     };
-  }, [loading]);
+  }, [loading, player]);
 
   // While playing, the inspector follows the scene under the playhead
   const followedSceneId = isPlaying && playheadSceneId ? playheadSceneId : activeSceneId;
@@ -296,7 +297,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
     setActiveSceneId(sceneId);
     const idx = videoProps.scenes.findIndex((s) => s.id === sceneId);
     if (idx >= 0) {
-      playerRef.current?.seekTo(timeline.starts[idx]);
+      player.seekTo(timeline.starts[idx]);
       setPlayheadFrame(timeline.starts[idx]);
     }
   };
@@ -491,31 +492,6 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
 
   /* ---------- Page ops: split, reorder, insert ---------- */
 
-  const openSplitter = (page: any) => {
-    setSplitPage(page);
-    setSplitCut(0.5);
-  };
-
-  const confirmSplit = async () => {
-    if (!splitPage || splittingPage) return;
-    setSplittingPage(true);
-    try {
-      const res = await fetch(`/api/chapters/${chapterId}/pages/${splitPage._id}/split`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cutAt: splitCut }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || 'Split failed');
-      setSplitPage(null);
-      await refreshOcrResults();
-    } catch (e: any) {
-      alert(e.message || 'Split failed');
-    } finally {
-      setSplittingPage(false);
-    }
-  };
-
   const movePage = async (page: any, dir: -1 | 1) => {
     const idx = pages.findIndex((p) => p._id === page._id);
     const swapIdx = idx + dir;
@@ -575,6 +551,37 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
       });
     });
     setLastStylePreset(p.id);
+  };
+
+  /** Render the current timeline to MP4 and download it. */
+  const handleExportVideo = async () => {
+    if (exporting || !videoProps.scenes.length) return;
+    setExporting(true);
+    setExportLabel('Preparing render…');
+    const controller = new AbortController();
+    exportAbortRef.current = controller;
+    player.pause();
+    try {
+      const blob = await renderVideoToBlob(
+        videoProps,
+        ({ frame, total }) => setExportLabel(`Encoding ${frame}/${total} (${Math.round((frame / total) * 100)}%)`),
+        controller.signal
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(chapter?.title || 'video').replace(/[^a-z0-9]+/gi, '_')}_${aspect.replace(':', 'x')}_${Date.now()}.mp4`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      setExportLabel('Done — MP4 downloaded');
+      setTimeout(() => setExportLabel(''), 6000);
+    } catch (e: any) {
+      if (!controller.signal.aborted) alert(e.message || 'Export failed');
+      setExportLabel('');
+    } finally {
+      exportAbortRef.current = null;
+      setExporting(false);
+    }
   };
 
   // Run the whole pipeline with one click: preprocess → extract → translate.
@@ -1079,6 +1086,17 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
         <div className="flex items-center space-x-3">
           <button
             type="button"
+            onClick={exporting ? () => exportAbortRef.current?.abort() : handleExportVideo}
+            disabled={!exporting && videoProps.scenes.length === 0}
+            className="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow disabled:opacity-50"
+            title={exporting ? 'Click to cancel render' : 'Render the timeline to MP4 and download'}
+          >
+            {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            <span>{exporting ? exportLabel : 'Export MP4'}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setShowPublishPanel(true)}
             className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:via-purple-500 hover:to-pink-500 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow"
           >
@@ -1471,6 +1489,13 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                   Applied to every scene you add — change any scene afterwards in its editor.
                 </p>
               </div>
+              <Link
+                href={`/chapters/${chapterId}/split`}
+                className="w-full bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 text-xs font-bold py-2 rounded-xl flex items-center justify-center space-x-1.5 transition-colors"
+              >
+                <Scissors className="w-3.5 h-3.5 text-rose-400" />
+                <span>Open Page Splitter</span>
+              </Link>
               <p className="text-[10px] text-neutral-500 leading-relaxed">
                 Pages are added in reading order as full webtoon scenes that scroll top → bottom, with OCR text as
                 narration. Adjust the camera, cut scenes at the playhead, and add effects in the editor.
@@ -1538,14 +1563,14 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
 
                     {/* Page tools — split / reorder / insert (appear on hover) */}
                     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center space-x-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        type="button"
-                        title="Split this page in two"
-                        onClick={(e) => { e.stopPropagation(); openSplitter(page); }}
-                        className="bg-neutral-950/85 hover:bg-rose-600 text-white p-1 rounded transition-colors"
+                      <Link
+                        href={`/chapters/${chapterId}/split`}
+                        title="Open page splitter"
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-neutral-950/85 hover:bg-rose-600 text-white p-1 rounded transition-colors flex"
                       >
                         <Scissors className="w-3 h-3" />
-                      </button>
+                      </Link>
                       <button
                         type="button"
                         title="Move earlier"
@@ -1652,26 +1677,17 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
             </div>
           </div>
 
-          {/* Remotion Player — frame-accurate preview of the exported video */}
+          {/* Canvas preview — frame-accurate, matches the exported video */}
           <div className="flex-1 flex items-center justify-center p-4 min-h-[420px]">
             <div
               className="relative bg-black rounded-xl overflow-hidden shadow-2xl border border-neutral-800"
               style={aspect === '16:9' ? { width: '100%', aspectRatio: '16 / 9' } : { height: '64vh', aspectRatio: '9 / 16' }}
             >
-              <Player
-                ref={playerRef}
-                component={WebtoonVideo}
-                inputProps={videoProps}
-                durationInFrames={timeline.durationInFrames}
-                compositionWidth={frameSize.width}
-                compositionHeight={frameSize.height}
-                fps={FPS}
-                controls
-                allowFullscreen
-                clickToPlay
-                doubleClickToFullscreen
-                spaceKeyToPlayOrPause
-                style={{ width: '100%', height: '100%' }}
+              <VideoPreview
+                player={player}
+                scenes={videoProps.scenes}
+                aspect={aspect}
+                showSubtitles={videoProps.showSubtitles}
               />
               {videoProps.scenes.length === 0 && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-neutral-500 text-sm space-y-2 pointer-events-none">
@@ -1709,7 +1725,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                   const rect = e.currentTarget.getBoundingClientRect();
                   const f = Math.round(((e.clientX - rect.left) / pxPerSecond) * FPS);
                   const clamped = Math.max(0, Math.min(timeline.durationInFrames - 1, f));
-                  playerRef.current?.seekTo(clamped);
+                  player.seekTo(clamped);
                   setPlayheadFrame(clamped);
                 }}
               >
@@ -2064,98 +2080,6 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
         </div>
       </div>
 
-      {/* Page splitter — pick the cut line, preview both halves, confirm */}
-      {splitPage && (
-        <div
-          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-6"
-          onClick={() => !splittingPage && setSplitPage(null)}
-        >
-          <div
-            className="bg-neutral-900 border border-neutral-700 rounded-2xl p-4 w-full max-w-3xl flex gap-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Left: the page with a draggable cut line */}
-            <div className="flex-1 flex flex-col min-w-0">
-              <p className="text-[11px] text-neutral-400 mb-2">
-                Drag/click on the image to place the cut — page {splitPage.order} splits into two pages
-              </p>
-              <div
-                className="relative inline-block mx-auto select-none cursor-crosshair"
-                onMouseDown={(e) => {
-                  const r = e.currentTarget.getBoundingClientRect();
-                  setSplitCut(Math.min(0.95, Math.max(0.05, (e.clientY - r.top) / r.height)));
-                }}
-                onMouseMove={(e) => {
-                  if (!(e.buttons & 1)) return;
-                  const r = e.currentTarget.getBoundingClientRect();
-                  setSplitCut(Math.min(0.95, Math.max(0.05, (e.clientY - r.top) / r.height)));
-                }}
-              >
-                <img
-                  src={pageImage(splitPage)}
-                  alt={`Page ${splitPage.order}`}
-                  draggable={false}
-                  className="max-h-[68vh] w-auto block rounded-lg"
-                />
-                <div
-                  className="absolute left-0 right-0 border-t-2 border-rose-500 pointer-events-none"
-                  style={{ top: `${splitCut * 100}%` }}
-                >
-                  <span className="absolute -top-3 left-1 bg-rose-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
-                    {Math.round(splitCut * 100)}%
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Right: how each half looks framed at the video aspect */}
-            <div className="w-44 shrink-0 space-y-2">
-              <p className="text-[10px] font-semibold text-neutral-400 uppercase">Video preview</p>
-              <div>
-                <p className="text-[10px] text-neutral-500 mb-1">Top → page {splitPage.order}</p>
-                <div
-                  className="relative bg-black rounded-lg overflow-hidden border border-neutral-800"
-                  style={{ aspectRatio: aspect === '16:9' ? '16/9' : '9/16' }}
-                >
-                  <img
-                    src={pageImage(splitPage)}
-                    alt="Top half preview"
-                    className="w-full h-full object-contain"
-                    style={{ clipPath: `inset(0 0 ${(1 - splitCut) * 100}% 0)` }}
-                  />
-                </div>
-              </div>
-              <div>
-                <p className="text-[10px] text-neutral-500 mb-1">Bottom → page {splitPage.order + 1}</p>
-                <div
-                  className="relative bg-black rounded-lg overflow-hidden border border-neutral-800"
-                  style={{ aspectRatio: aspect === '16:9' ? '16/9' : '9/16' }}
-                >
-                  <img
-                    src={pageImage(splitPage)}
-                    alt="Bottom half preview"
-                    className="w-full h-full object-contain"
-                    style={{ clipPath: `inset(${splitCut * 100}% 0 0 0)` }}
-                  />
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={confirmSplit}
-                disabled={splittingPage}
-                className="w-full bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold py-2 rounded-xl flex items-center justify-center space-x-1.5 transition-colors disabled:opacity-50"
-              >
-                {splittingPage ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Scissors className="w-3.5 h-3.5" />}
-                <span>{splittingPage ? 'Splitting…' : 'Split Here'}</span>
-              </button>
-              <p className="text-[9px] text-neutral-600 leading-snug">
-                New page inserts at position {splitPage.order + 1}; later pages shift. OCR is cleared on both halves so
-                Extract re-runs on them.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {showPublishPanel && (
         <MultiPlatformPublishPanel

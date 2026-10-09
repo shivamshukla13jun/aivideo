@@ -18,9 +18,8 @@ import {
   RefreshCw,
   Clapperboard,
 } from 'lucide-react';
-import { renderMediaOnWeb } from '@remotion/web-renderer';
-import { WebtoonVideo } from '@/components/video/WebtoonVideo';
-import { Aspect, FPS, FRAME_SIZE } from '@/lib/video/camera';
+import { renderVideoToBlob } from '@/lib/video/exportVideo';
+import { Aspect } from '@/lib/video/camera';
 import { buildVideoProps, computeTimeline } from '@/lib/video/project';
 
 interface YouTubeAccountLite {
@@ -128,28 +127,14 @@ export default function YouTubePublishPanel({ chapterId, chapterTitle, scenes, a
     try {
       const props = buildVideoProps(scenes, aspect, showSubtitles);
       const { durationInFrames } = computeTimeline(props.scenes);
-      const { width, height } = FRAME_SIZE[aspect];
-      const { getBlob } = await renderMediaOnWeb({
-        composition: {
-          id: 'webtoon-video',
-          component: WebtoonVideo,
-          durationInFrames,
-          fps: FPS,
-          width,
-          height,
-          defaultProps: props,
+      const blob = await renderVideoToBlob(
+        props,
+        ({ frame, total }) => {
+          setRenderProgress(Math.min(99, Math.round((frame / total) * 100)));
+          setRenderLabel(`Encoding frame ${frame}/${total}`);
         },
-        inputProps: props,
-        container: 'mp4',
-        videoBitrate: 'high',
-        signal: controller.signal,
-        delayRenderTimeoutInMilliseconds: 120000,
-        onProgress: ({ progress, encodedFrames }) => {
-          setRenderProgress(Math.min(99, Math.round(progress * 100)));
-          setRenderLabel(`Encoding frame ${encodedFrames}/${durationInFrames}`);
-        },
-      });
-      const blob = await getBlob();
+        controller.signal
+      );
       setVideoBlob(blob);
       setVideoName(`${(chapterTitle || 'video').replace(/[^a-z0-9]+/gi, '_')}_${aspect.replace(':', 'x')}_${Date.now()}.mp4`);
       setDownloadUrl(URL.createObjectURL(blob));

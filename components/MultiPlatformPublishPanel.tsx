@@ -33,9 +33,8 @@ import {
   Globe,
   AlertTriangle,
 } from 'lucide-react';
-import { renderMediaOnWeb } from '@remotion/web-renderer';
-import { WebtoonVideo } from '@/components/video/WebtoonVideo';
-import { Aspect, FPS, FRAME_SIZE } from '@/lib/video/camera';
+import { renderVideoToBlob } from '@/lib/video/exportVideo';
+import { Aspect } from '@/lib/video/camera';
 import { buildVideoProps, computeTimeline } from '@/lib/video/project';
 
 interface AccountLite {
@@ -255,20 +254,14 @@ export default function MultiPlatformPublishPanel({ chapterId, chapterTitle, sce
     try {
       const props = buildVideoProps(renderScenes, renderAspect, showSubtitles);
       const { durationInFrames } = computeTimeline(props.scenes);
-      const { width, height } = FRAME_SIZE[renderAspect];
-      const { getBlob } = await renderMediaOnWeb({
-        composition: { id: 'webtoon-video', component: WebtoonVideo, durationInFrames, fps: FPS, width, height, defaultProps: props },
-        inputProps: props,
-        container: 'mp4',
-        videoBitrate: 'high',
-        signal: controller.signal,
-        delayRenderTimeoutInMilliseconds: 120000,
-        onProgress: ({ progress, encodedFrames }) => {
-          setRenderProgress(Math.min(99, Math.round(progress * 100)));
-          setRenderLabel(`Encoding frame ${encodedFrames}/${durationInFrames}`);
+      const blob = await renderVideoToBlob(
+        props,
+        ({ frame, total }) => {
+          setRenderProgress(Math.min(99, Math.round((frame / total) * 100)));
+          setRenderLabel(`Encoding frame ${frame}/${total}`);
         },
-      });
-      const blob = await getBlob();
+        controller.signal
+      );
       setVideoBlob(blob);
       const label = clip ? `short_${clip.strategy}` : 'video';
       setVideoName(`${(chapterTitle || label).replace(/[^a-z0-9]+/gi, '_')}_${renderAspect.replace(':', 'x')}_${Date.now()}.mp4`);
